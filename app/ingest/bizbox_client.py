@@ -10,9 +10,14 @@ BizBox 는 **읽기 크롤만**(쓰기/변경 절대 금지).
 
 from __future__ import annotations
 
+import base64
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
+
+from cryptography.hazmat.primitives import padding as _sympad
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 if TYPE_CHECKING:
     import httpx
@@ -56,6 +61,21 @@ _DOWNLOAD_PATHS = (
     "/edms/doc/downloadFile.do",          # 폴백 2
 )
 
+# eGov + Spring Security 로그인 (라이브 실측 2026-06-29). 로그인 페이지의 securityEncrypt() 재현.
+_LOGIN_PAGE_PATH = "/gw/uat/uia/egovLoginUsr.do"
+_ACTION_LOGIN_PATH = "/gw/uat/uia/actionLogin.do"
+# 로그인 페이지 JS 의 정적 AES 키(전사 동일·공개 — 비밀 아님). key == iv, AES-128-CBC-PKCS7.
+_LOGIN_AES_KEY = b"jIBQW9QlRqV#DT(C"
+
+
+def _security_encrypt(plain: str) -> str:
+    """로그인 페이지 ``securityEncrypt()`` 재현: AES-128-CBC-PKCS7 → base64 → ``'!'+`` → encodeURIComponent."""
+    padder = _sympad.PKCS7(128).padder()
+    padded = padder.update(plain.encode("utf-8")) + padder.finalize()
+    enc = Cipher(algorithms.AES(_LOGIN_AES_KEY), modes.CBC(_LOGIN_AES_KEY)).encryptor()
+    ct = enc.update(padded) + enc.finalize()
+    return quote("!" + base64.b64encode(ct).decode(), safe="!*'()")
+
 
 class HttpBizboxClient:
     """실세션 BizBox 클라이언트(httpx.Client, cookie jar). 폐쇄망 스모크 전용."""
@@ -87,14 +107,52 @@ class HttpBizboxClient:
         return self._client
 
     def login(self) -> None:
-        """서비스계정 프로그램 로그인. 자격은 Settings(.env) — 하드코딩 금지."""
+        """서비스계정 프로그램 로그인 (eGov + Spring Security 3단계, AES 암호화 — 라이브 실측).
+
+        ① 로그인 페이지 GET(세션·anti-bot 토큰 확보) → ② actionLogin.do 에 AES 암호화
+        id/password POST(Referer 필수) → Spring Security 자동제출 폼 응답 →
+        ③ 그 폼(j_username/j_password)을 j_spring_security_check 로 POST → 인증 세션.
+        암호화·필드분할은 로그인 페이지 ``actionLogin()`` JS 와 동일. 자격은 .env.
+        """
         client = self._ensure_client()
         user = self._settings.bizbox_user
         password = self._settings.bizbox_password
-        if not user:
-            raise RuntimeError("BIZBOX_USER 미설정(.env) — 서비스계정 로그인 불가")
-        # 로그인 폼 POST(엔드포인트는 환경별 — 스모크 시 확정). 쿠키는 client jar 에 적재.
-        client.post("/gw/login/loginProcess.do", data={"userId": user, "passwd": password})
+        if not user or not password:
+            raise RuntimeError("BIZBOX_USER/PASSWORD 미설정(.env) — 서비스계정 로그인 불가")
+
+        client.get(_LOGIN_PAGE_PATH)  # ① 세션·토큰
+
+        enc_id = _security_encrypt(user)
+        id0, id1, id2 = enc_id, "", ""
+        if len(id0) > 50:  # 암호화 id 50자 초과 시 id/id_sub1/id_sub2 분할(JS 동일)
+            id1, id0 = id0[50:], id0[:50]
+            if len(id1) > 50:
+                id2, id1 = id1[50:], id1[:50]
+
+        # ② actionLogin → Spring Security 자동제출 폼
+        action_resp = client.post(
+            _ACTION_LOGIN_PATH,
+            data={
+                "isScLogin": "", "scUserId": "", "scUserPwd": "",
+                "id": id0, "id_sub1": id1, "id_sub2": id2,
+                "password": _security_encrypt(password), "checkId": "",
+            },
+            headers={"Referer": self._base + _LOGIN_PAGE_PATH},
+        )
+        m_action = re.search(r"action='([^']+)'", action_resp.text)
+        m_user = re.search(r"name='j_username'\s+value='([^']*)'", action_resp.text)
+        m_pwd = re.search(r"name='j_password'\s+value='([^']*)'", action_resp.text)
+        if not (m_action and m_user and m_pwd):
+            raise RuntimeError(
+                "BizBox 로그인 실패 — actionLogin 응답에 Spring Security 폼 없음(자격/차단 확인)"
+            )
+
+        # ③ Spring Security check → 인증 세션 확정
+        client.post(
+            m_action.group(1),
+            data={"j_username": m_user.group(1), "j_password": m_pwd.group(1)},
+            headers={"Referer": self._base},
+        )
         self._logged_in = True
 
     def fetch_board_page(self, board_no: int, page: int, per_page: int) -> str:

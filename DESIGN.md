@@ -61,7 +61,10 @@ streamable-http 런타임. 도구 7: `search_regulations` · `get_regulation` ·
 - 목록: `GET /edms/board/viewBoard.do?boardNo=&currentPage=&countPerPage=` → HTML 표(번호·제목·작성자·조회·좋아요·등록일), 글은 `viewPost(artNo)`
 - 글: `GET /edms/board/viewPost.do?boardNo=&artNo=` → 메타 + 본문(**nested iframe `bizboxLink.do?url=<urlenc /edms/..>` 2-hop**)
 - 첨부 다운로드: `/gw/cmm/file/edmsDownloadProc.do`(메인) · `/edms/board/downloadFile.do` · `/edms/doc/downloadFile.do`. 파일필드 `fileNm/fileRnm/filePath/saveFileName/orignlFileName/fileExt`
-- 인증: **서비스계정 프로그램 로그인**(.env 시크릿). 증분: artNo/등록일.
+- 인증(라이브 실측 2026-06-29 — 구현·검증 `app/ingest/bizbox_client.py:login()`): **eGov + Spring Security 3단계, AES 암호화**.
+  ① GET `/gw/uat/uia/egovLoginUsr.do`(세션·anti-bot) → ② POST `/gw/uat/uia/actionLogin.do`(id/password 를 `securityEncrypt()`=AES-128-CBC-PKCS7+base64+`'!'`+encodeURIComponent, 정적키=iv `jIBQW9QlRqV#DT(C`, Referer 필수; 암호화 id 50자 초과 시 id/id_sub1/id_sub2 분할) → Spring Security 자동제출 폼 응답 → ③ POST `/gw/j_spring_security_check`(폼의 j_username/j_password) → 인증 세션. 자격은 .env.
+- ⚠️ **boardNo ≠ jstree 노드 id**: 트리 노드 id `1401000286`(사내규정)의 실제 boardNo = **`900000286`**(뒤 6자리 일치). §위 19보드 표는 jstree id → 실제 boardNo 매핑 필요(포털/트리 데이터에서 확정).
+- ⚠️ **글 목록은 AJAX 로드**: `viewBoard.do` 응답은 셸(검색폼·좌측트리·페이징 컨테이너, `totalCount`=106 만 포함)이고 `<table>`/`<tr>` 행 아님. 실제 글 행은 **별도 AJAX 엔드포인트**가 반환 → 현재 목 fixture 기반 `<tr>` 파서(`crawler._parse_list_rows`) 미작동, list/post/body/첨부 파싱을 라이브 구조로 재작성 필요. 증분: artNo/등록일.
 
 ### 수집 대상 19개 보드 (사내게시판, boardNo=jstree node id)
 | boardNo | 게시판 | 비고 |
