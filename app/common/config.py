@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     mcp_port: int = 8080
     log_level: str = "INFO"
 
+    # ── 검색 랭킹 ─────────────────────────────────────────────
+    # 최신순 가중(recency_w): score = raw_score * (1 + recency_w * recency_factor),
+    # recency_factor = 1/(1 + age_days/half_life)(반감기 365일). 0.0=비활성(순수 어휘).
+    # 사내 정보는 현행(is_current) 안에서도 최신 글을 우선 노출해야 하므로 기본 활성(0.3).
+    # 평가 골든셋 영향 시 .env(SEARCH_RECENCY_W)로 조정.
+    search_recency_w: float = 0.3
+
     def _userinfo(self) -> str:
         """``user:password`` (특수문자 URL 인코딩). 빈 비번도 안전(``user:``)."""
         return f"{quote(self.db_user, safe='')}:{quote(self.db_password, safe='')}"

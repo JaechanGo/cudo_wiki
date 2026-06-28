@@ -10,6 +10,7 @@ from datetime import date
 
 from psycopg.rows import dict_row
 
+from app.common.config import get_settings
 from app.search.normalize import extract_clause_ref, normalize
 from app.search.query_builder import build_search_sql
 from app.search.types import SearchHit, SearchResult
@@ -46,12 +47,16 @@ async def search(
     limit: int = 30,
     use_synonym_expand: bool = True,
     use_mecab_parallel: bool | None = None,  # R0: 단일 OR(body|tokenized) — 보드 분기 불필요(D-02)
+    recency_w: float | None = None,
 ) -> SearchResult:
     """질의를 정규화·확장해 PGroonga 로 후보 top-N 을 조회한다.
 
     조항 직격 참조가 추출되면 btree 정확 경로를 우선(strategy="exact_clause").
     board_ids 는 ACL 사전결정 결과를 받는 파라미터(필터 주체는 C). 빈 질의는 빈 결과.
+    recency_w=None 이면 설정값(search_recency_w)을 사용 — 현행 결과 안에서도 최신 글 우선.
     """
+    if recency_w is None:
+        recency_w = get_settings().search_recency_w
     normalized = normalize(query)
     if not normalized:
         return SearchResult(
@@ -68,6 +73,7 @@ async def search(
         as_of=as_of,
         limit=limit,
         use_synonym_expand=use_synonym_expand,
+        recency_w=recency_w,
     )
 
     async with conn.cursor(row_factory=dict_row) as cur:
