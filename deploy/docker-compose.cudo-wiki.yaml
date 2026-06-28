@@ -1,0 +1,93 @@
+# ════════════════════════════════════════════════════════════════════════════
+#  cudo-wiki — 운영 합류용 배포 매니페스트 (운영자 대면)
+# ════════════════════════════════════════════════════════════════════════════
+#
+# ★ 루트 `docker-compose.yml`(T006)과 **토폴로지 동치**입니다 — 서비스/네트워크/이미지/
+#   볼륨/Dockerfile 경로가 동일하며, 위치가 deploy/ 하위라 빌드·볼륨·env_file 경로만
+#   `..`(worktree 루트)로 재기준했습니다.
+#   ▶ 어느 한쪽을 바꾸면 **반드시 양쪽을 동기**하세요(드리프트 방지).
+#     루트 compose = 개발/단독 검증용 SSOT, 이 파일 = 운영 합류용 큐레이션 복제.
+#
+# 서비스 3종:
+#   postgres        : PGroonga 내장 PostgreSQL (internal 망 전용, 호스트 포트 비노출)
+#   cudo-wiki-mcp   : streamable-http MCP 서버 (호스트 포트 비노출 — 서비스명 DNS 로만 접근)
+#   migrate         : 1회성 alembic upgrade head (profile=migrate, 평상시 미기동)
+#
+# 네트워크: internal(자체 bridge) + 외부망 librechat_default / litellm-gateway_default(external:true).
+#   외부망 2종은 LibreChat / LiteLLM 스택이 **사전 생성**해야 합니다 — 없으면 `up` 실패.
+#
+# 정적 검증(무기동): `docker compose -f deploy/docker-compose.cudo-wiki.yaml config` (종료0).
+#   env_file required:false 라 .env 부재에도 config 통과. 런타임(up/migrate)은 ../.env 필수.
+# 사전조건: Docker Compose v2.24+ (env_file long syntax `path:`/`required:` 키).
+# 시크릿(DB_PASSWORD·LITELLM_KEY_GLM 등)은 ../.env 참조 — 이 파일에 하드코딩 금지.
+# ════════════════════════════════════════════════════════════════════════════
+
+services:
+  postgres:
+    image: groonga/pgroonga:4.0.6-debian-17   # PG17 + PGroonga 4.0.6. 핀 고정(:latest 금지).
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}          # 컨테이너 superuser → CREATE EXTENSION pgroonga 권한.
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - cudo_wiki_pgdata:/var/lib/postgresql/data
+      - ../docker/postgres/initdb:/docker-entrypoint-initdb.d:ro   # deploy/ 기준 상대(..). 폴백(정본=alembic).
+    networks:
+      - internal
+    # ports: 미노출(기본). postgres 는 internal 망 단독 — 외부망/호스트에 노출하지 않음.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  cudo-wiki-mcp:
+    build:
+      context: ..                        # worktree 루트(deploy/ 상위) 재사용.
+      dockerfile: docker/Dockerfile.mcp  # 루트 기준 경로(EXPOSE 8080, 비루트 appuser, CMD uvicorn).
+    command: uvicorn app.mcp.server:app --host 0.0.0.0 --port ${MCP_PORT}
+    env_file:
+      - path: ../.env
+        required: false      # .env 부재에도 `config` 통과. 런타임은 ../.env 필수(시크릿).
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+      - librechat_default        # LibreChat → cudo-wiki-mcp:${MCP_PORT}/mcp 도달
+      - litellm-gateway_default  # mcp → GLM(LiteLLM) 경유
+    # 호스트 포트 비노출 — 서비스명 DNS(cudo-wiki-mcp:${MCP_PORT})로만 접근.
+    # (server.py: DNS rebinding 보호 비활성의 안전 전제 = 호스트 미노출. 절대 ports 추가 금지.)
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.mcp  # cudo-wiki-mcp 와 동일 이미지 — command 만 override.
+    command: alembic upgrade head
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    profiles:
+      - migrate               # 평상시 미기동. `docker compose -f deploy/... --profile migrate run --rm migrate`.
+
+volumes:
+  cudo_wiki_pgdata: {}
+
+networks:
+  internal:
+    driver: bridge
+  librechat_default:
+    external: true            # LibreChat 스택이 만든 외부망 (사전 존재 필요).
+  litellm-gateway_default:
+    external: true            # LiteLLM 게이트웨이 외부망 (사전 존재 필요).

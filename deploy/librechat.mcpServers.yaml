@@ -1,0 +1,50 @@
+# ════════════════════════════════════════════════════════════════════════════
+#  cudo-wiki MCP — 운영 librechat.yaml 병합용 추가 스니펫
+# ════════════════════════════════════════════════════════════════════════════
+#
+# ★ 이 파일은 "추가분 스니펫"입니다. 전체 교체가 아닙니다.
+#   운영 librechat.yaml 최상위의 기존 `mcpServers:` 블록에 아래 `cudo-wiki:` 키
+#   하나를 병합(추가)하세요. 기존의 다른 mcpServers 항목은 그대로 보존합니다.
+#   (운영 librechat.yaml 은 D 작업에서 직접 수정하지 않습니다 — 운영자 수동 적용.)
+#
+# ── 신원 보간 방식 (스푸핑 방지) ───────────────────────────────────────────────
+#   headers 의 값은 LibreChat **인증세션이 주입하는 보간 헤더**(`{{LIBRECHAT_USER_*}}`)만
+#   사용합니다. 사용자가 채팅에서 입력하는 customUserVars(`{{사용자입력}}`)는 **사용 금지** —
+#   위조 가능하기 때문입니다. C 서버(app/mcp/context.py)는 헤더만 신뢰하며 customUserVars
+#   경로가 구조적으로 부재합니다.
+#
+# ── 헤더 키 = C 계약과 정확히 일치 (진실원: app/mcp/context.py 라인 28–31) ───────
+#     HEADER_ROLE     = "x-librechat-user-role"      (필수 — ACL 신원)
+#     HEADER_EMAIL    = "x-librechat-user-email"     (필수 — ACL 신원)
+#     HEADER_USER_ID  = "x-librechat-user-id"        (권장 — 감사 식별)
+#     HEADER_SESSION  = "x-librechat-session-id"     (선택 — 감사 상관, nullable)
+#   C 의 raw_present = bool(role or email) → role/email 중 하나만 있어도 신원 인정(ACL 통과).
+#   C 는 헤더 키를 소문자 정규화 비교하므로 대소문자 무관하나, 가독성 위해 소문자로 둡니다.
+# ════════════════════════════════════════════════════════════════════════════
+
+mcpServers:
+  cudo-wiki:
+    type: streamable-http
+    # 서비스명 DNS(호스트 포트 비노출). 최종 경로 = /mcp (server.py: mount '/mcp' + streamable_http_path '/').
+    # 포트는 ${MCP_PORT} 기본 8080. yaml 은 compose env 보간을 받지 않으므로 직접 표기 — 포트 변경 시 이 한 줄 수정.
+    url: http://cudo-wiki-mcp:8080/mcp
+    # C instructions(_INSTRUCTIONS, server.py 27–34: 도구7·결정론 인용·근거없으면 기권·헤더 ACL)를 모델에 주입.
+    serverInstructions: true
+    # 도구 호출 타임아웃(ms) — 검색(PGroonga) + GLM 리랭크 왕복 여유.
+    timeout: 30000
+    # 최초 MCP 핸드셰이크 타임아웃(ms, 선택).
+    initTimeout: 60000
+    headers:
+      x-librechat-user-role: '{{LIBRECHAT_USER_ROLE}}'    # 필수 — ACL 신원(인증세션 주입)
+      x-librechat-user-email: '{{LIBRECHAT_USER_EMAIL}}'  # 필수 — ACL 신원(인증세션 주입)
+      x-librechat-user-id: '{{LIBRECHAT_USER_ID}}'        # 권장 — 감사 식별(인증세션 주입)
+      # x-librechat-session-id: '<TODO>'
+      #   ⚠️ TODO(plan §2.3 / 열린질문 #1): LibreChat 네이티브 dynamic user 필드는
+      #      LIBRECHAT_USER_{ID,EMAIL,USERNAME,ROLE,EMAILVERIFIED} 만 존재 — 세션/대화 id 전용
+      #      placeholder 가 없습니다. 후보 `{{LIBRECHAT_BODY_conversationId}}`(request body 보간)로
+      #      채울 수 있는지는 **운영 연동 리콘에서 실테스트 후** 활성화하세요.
+      #      비치명: C 의 session_id 는 query_log/acl_audit 에서 nullable 이며 raw_present 판정에
+      #      포함되지 않습니다. 없으면 감사 로그의 세션 상관만 빠질 뿐 ACL/검색/인용은 정상.
+      #      존재하지 않는 placeholder 를 박지 않기 위해 기본 비활성(주석) 유지합니다.
+
+    # chatMenu: true   # (선택) 기본 노출. agent-only 로 채팅 메뉴에서 숨기려면 false — 운영 선택.
