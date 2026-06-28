@@ -200,7 +200,16 @@ class HttpBizboxClient:
         return resp.text
 
     def download_attachment(self, url: str, params: dict) -> bytes:
-        resp = self._ensure_client().get(url or _DOWNLOAD_PATHS[0], params=params)
+        """첨부 GET — crawler 가 만든 downloadFile.do 절대경로를 그대로 요청(+Referer).
+
+        ★ ``params or None``: 빈 dict 를 넘기면 httpx 가 URL 의 기존 query(boardNo/fileNm)를
+        덮어써 0바이트가 된다(라이브 실측). download_url 에 이미 query 가 있으므로 빈 params 는 None.
+        """
+        resp = self._ensure_client().get(
+            url or _DOWNLOAD_PATHS[0],
+            params=params or None,
+            headers={"Referer": self._base + _POST_VIEW_PATH},
+        )
         resp.raise_for_status()
         return resp.content
 

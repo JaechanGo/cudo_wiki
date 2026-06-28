@@ -1,0 +1,11 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>
+<!-- 라이브 viewPost.do 구조: 본문은 2-hop iframe(viewPostArtContent.do), 첨부는 downloadFile.do 링크.
+     메타(제목/작성자/날짜)는 목록 exData 재사용 → 여기엔 불필요.
+     downloadFile.do 의 fileNm=서버저장명(Mock 이 파일 해소에 사용) / fileRnm=원본 표시명. -->
+<div class="post-view">
+  <iframe id="contentIframe" src="viewPostArtContent.do?boardNo=900000286&artNo=1001"></iframe>
+  <div class="attachments">
+    <a href="/edms/board/downloadFile.do?boardNo=900000286&fileNm=authority.xlsx&fileRnm=출장비_전결표.xlsx">출장비_전결표.xlsx</a>
+  </div>
+</div>
+</body></html>

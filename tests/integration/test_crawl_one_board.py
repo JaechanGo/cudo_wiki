@@ -17,12 +17,7 @@ from app.ingest.board_seed import BOARDS
 from app.ingest.loader import upsert_board_seed
 from app.ingest.run import crawl_board
 
-# ① 첨부 라이브 파싱(appendFileTop.do/download.do) + fixture 를 라이브 구조(exData·
-# viewPostArtContent)로 갱신한 뒤 활성화. 현재 crawl_post 는 본문만 수집(첨부 빈 tuple).
-pytestmark = [
-    pytest.mark.integration,
-    pytest.mark.skip(reason="①첨부 라이브 파싱 + fixture 라이브 갱신 후 활성화 예정"),
-]
+pytestmark = pytest.mark.integration
 
 REG_BOARD_NO = 900000286
 FIXTURES_ROOT = str(Path(__file__).resolve().parents[1] / "fixtures" / "bizbox")

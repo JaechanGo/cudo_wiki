@@ -17,22 +17,40 @@ import json
 import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
+from urllib.parse import parse_qs, unquote
 
-from app.ingest.models import PostRef, RawPost
+from app.ingest.models import PostRef, RawAttachment, RawPost
 
 if TYPE_CHECKING:
     from app.ingest.bizbox_client import BizboxClient
 
 _DATE_RE = re.compile(r"(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})")
 
-# viewBoard.do 응답의 인라인 목록 데이터: ``var exData = [ ... ];`` (최신순).
-_EXDATA_RE = re.compile(r"var\s+exData\s*=\s*(\[.*?\])\s*;", re.S)
+# viewBoard.do 응답의 인라인 목록 데이터: ``var exData = [ {...}, ... ];`` (최신순).
+# ``\[\s*\{`` 로 '객체로 시작하는 배열'만 매칭 — 주석 등의 ``exData=[...]`` placeholder 회피.
+_EXDATA_RE = re.compile(r"var\s+exData\s*=\s*(\[\s*\{.*?\}\s*\])\s*;", re.S)
 # JS 객체 리터럴의 트레일링 콤마(`,]` `,}`) → JSON 파서가 거부하므로 제거.
 _TRAILING_COMMA_RE = re.compile(r",(\s*[\]}])")
 # viewPost HTML 의 2-hop 본문 iframe 경로.
 _INNER_RE = re.compile(r"viewPostArtContent\.do\?([^\"'\s>]+)")
+# viewPost HTML 의 첨부 다운로드 링크: downloadFile.do?boardNo=&fileNm=&fileRnm= (라이브 실측).
+_DOWNLOAD_RE = re.compile(r"[\"']([^\"']*downloadFile\.do\?[^\"']+)[\"']")
+
+# 확장자 → attachment.kind CHECK enum.
+_EXT_KIND = {
+    "hwp": "hwp", "hwpx": "hwp",
+    "pdf": "pdf",
+    "xlsx": "excel", "xls": "excel", "xlsm": "excel",
+    "png": "image", "jpg": "image", "jpeg": "image", "gif": "image",
+    "tif": "image", "tiff": "image", "bmp": "image",
+    "doc": "word", "docx": "word",
+}
 
 _MAX_PAGES = 200  # --full 무한루프 방지(plan §4 페이지네이션 안전캡).
+
+
+def _kind_from_ext(ext: str | None) -> str:
+    return _EXT_KIND.get((ext or "").lower().lstrip("."), "etc")
 
 
 def _parse_date(text: str | None) -> datetime | None:
@@ -154,17 +172,47 @@ def extract_inner_url(view_post_html: str) -> str | None:
     return "/edms/board/viewPostArtContent.do?" + m.group(1)
 
 
-def crawl_post(client: BizboxClient, board_no: int, ref: PostRef) -> RawPost:
-    """viewPost.do(메타는 ``ref`` 재사용) + 2-hop 본문(viewPostArtContent.do) → RawPost.
+def _parse_attachments(view_post_html: str, board_no: int) -> tuple[RawAttachment, ...]:
+    """viewPost HTML 의 ``downloadFile.do?boardNo=&fileNm=&fileRnm=`` 링크 → RawAttachment (라이브 실측).
 
-    body_text(정제)·content_hash 는 호출부(run)가 채운다 — 여기는 raw body_html 까지.
-    첨부는 1차 미수집(빈 tuple) — appendFileTop.do/download.do 라이브 파싱은 후속(DESIGN §7).
+    fileNm=서버 저장명(확장자 보유) · fileRnm=원본 표시명(URL-encoded, 비어있을 수 있음).
+    표시명은 fileRnm(있으면) 아니면 fileNm. download_url 은 링크 그대로(``client.download_attachment``
+    가 GET). fileNm 기준 dedup. 본문 인라인 이미지(img_file_yn)는 첨부 아님 → 여기서 제외.
+    """
+    atts: list[RawAttachment] = []
+    seen: set[str] = set()
+    for m in _DOWNLOAD_RE.finditer(view_post_html):
+        href = m.group(1)
+        q = parse_qs(href.split("?", 1)[1]) if "?" in href else {}
+        file_nm = (q.get("fileNm") or [None])[0]
+        if not file_nm or file_nm in seen:
+            continue
+        seen.add(file_nm)
+        file_rnm = unquote((q.get("fileRnm") or [""])[0]) or None
+        ext = file_nm.rsplit(".", 1)[1].lower() if "." in file_nm else None
+        download_url = href if href.startswith("/") else "/edms/board/" + href.lstrip("/")
+        atts.append(
+            RawAttachment(
+                file_name=file_rnm or file_nm,
+                kind=_kind_from_ext(ext),
+                download_url=download_url,
+                file_ext=ext,
+            )
+        )
+    return tuple(atts)
+
+
+def crawl_post(client: BizboxClient, board_no: int, ref: PostRef) -> RawPost:
+    """viewPost.do(메타는 ``ref`` 재사용) + 2-hop 본문(viewPostArtContent.do) + 첨부 → RawPost.
+
+    body_text(정제)·content_hash·첨부 바이트/추출은 호출부(run)가 채운다 — 여기는 raw 까지.
     """
     view_html = client.fetch_post(board_no, ref.art_no)
 
     inner_url = extract_inner_url(view_html)
     body_html = client.fetch_inner_content(inner_url) if inner_url is not None else view_html
 
+    attachments = _parse_attachments(view_html, board_no)
     source_url = f"/edms/board/viewPost.do?boardNo={board_no}&artNo={ref.art_no}"
 
     return RawPost(
@@ -177,5 +225,5 @@ def crawl_post(client: BizboxClient, board_no: int, ref: PostRef) -> RawPost:
         posted_at=ref.posted_at,
         view_count=ref.view_count,
         source_url=source_url,
-        attachments=(),
+        attachments=attachments,
     )
