@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cudo-wiki"
+version = "0.1.0"
+description = "CUDO 사내 위키 — BizBox 규정/전결규정/공지/매뉴얼 RAG (PostgreSQL + PGroonga, LibreChat MCP)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+
+# 런타임 의존성 (plan §3.2). 단일 DB 드라이버 = psycopg3 (런타임 async 풀 + alembic sync).
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "psycopg[binary,pool]>=3.1",   # psycopg3: AsyncConnectionPool(런타임) + SQLAlchemy(+psycopg) 양쪽
+    "alembic>=1.13",                # SQLAlchemy 동반 — ORM 미사용, raw DDL 실행기로만
+    "pydantic-settings>=2.1",
+    "mcp>=1.2",                     # Python MCP SDK (streamable-http)
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pyyaml>=6.0",                  # test_compose_structure.py (compose YAML 구조 검증)
+    "ruff>=0.3",
+    # testcontainers 는 선택 — 있으면 통합테스트가 pgroonga 컨테이너 자동 기동.
+    # 없으면 TEST_DATABASE_URL/DATABASE_URL env DSN 으로 폴백, 둘 다 없으면 skip.
+    "testcontainers[postgres]>=4.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: DB/도커가 필요한 통합테스트 (DB 부재 시 skip)",
+]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# 마이그레이션은 raw DDL(CHECK enum·FK 절) 문자열이라 줄바꿈 시 SQL 가독성이 떨어짐 → E501 면제.
+"migrations/versions/*.py" = ["E501"]

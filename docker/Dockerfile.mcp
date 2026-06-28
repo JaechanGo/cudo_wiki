@@ -1,0 +1,27 @@
+# cudo-wiki-mcp / migrate 공용 이미지 (앱 + alembic).
+# 두 서비스가 동일 이미지 재사용 — command 만 override (uvicorn / alembic upgrade head).
+
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# 소스 + 마이그레이션 전부 복사 (migrate 서비스가 migrations/·alembic.ini 사용).
+COPY pyproject.toml README.md ./
+COPY app/ ./app/
+COPY migrations/ ./migrations/
+COPY alembic.ini ./
+
+# pyproject 로 런타임 의존성 설치 (dev 제외). 비루트 사용자로 실행.
+RUN pip install . \
+    && adduser --disabled-password --gecos "" appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8080
+
+# 기본 CMD = MCP 서버. migrate 서비스는 compose 에서 `alembic upgrade head` 로 override.
+CMD ["uvicorn", "app.mcp.server:app", "--host", "0.0.0.0", "--port", "8080"]

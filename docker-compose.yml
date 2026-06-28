@@ -1,0 +1,80 @@
+# CUDO 사내 위키 — docker-compose (plan §5).
+#
+# 서비스 3종:
+#   postgres        : PGroonga 내장 PostgreSQL (internal 망 전용, 호스트 포트 비노출)
+#   cudo-wiki-mcp   : streamable-http MCP 서버 (호스트 포트 비노출 — 서비스명 DNS 로만 접근)
+#   migrate         : 1회성 alembic upgrade head (profile=migrate)
+#
+# 네트워크: internal(자체) + 외부망 librechat_default / litellm-gateway_default (external:true).
+# 검증: `docker compose config` (종료0) — [M-2] env_file required:false 로 .env 부재에도 통과.
+#       런타임(`up`·migrate)은 .env 필수(DB_PASSWORD·LITELLM_KEY_GLM 등 시크릿).
+# 사전조건: Docker Compose v2.24+ (env_file long syntax `required:` 키) — README §셋업 참조 [n-1].
+
+services:
+  postgres:
+    image: groonga/pgroonga:4.0.6-debian-17   # PG17 + PGroonga 4.0.6 (NormalizerNFKC150 지원). :latest 금지 [R3/R4].
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}          # 컨테이너 superuser → CREATE EXTENSION pgroonga 권한 [m-2/R10].
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - cudo_wiki_pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/initdb:/docker-entrypoint-initdb.d:ro   # 폴백(정본=alembic) [R12].
+    networks:
+      - internal
+    # ports: 미노출(기본). 로컬에서 alembic 직접 실행 시 override 파일로 127.0.0.1:5432 매핑.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  cudo-wiki-mcp:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.mcp
+    command: uvicorn app.mcp.server:app --host 0.0.0.0 --port ${MCP_PORT}
+    env_file:
+      - path: .env
+        required: false       # [M-2] .env 부재에도 `docker compose config` 통과. 런타임은 .env 필수.
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+      - librechat_default        # LibreChat → cudo-wiki-mcp:${MCP_PORT}/mcp 도달
+      - litellm-gateway_default  # mcp → GLM(LiteLLM) 경유
+    # 호스트 포트 비노출 — 서비스명 DNS(cudo-wiki-mcp:${MCP_PORT})로만 접근.
+
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.mcp
+    command: alembic upgrade head
+    env_file:
+      - path: .env
+        required: false       # [M-2] 동일.
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    profiles:
+      - migrate               # 평상시 미기동. `docker compose --profile migrate run --rm migrate`.
+
+volumes:
+  cudo_wiki_pgdata: {}
+
+networks:
+  internal:
+    driver: bridge
+  librechat_default:
+    external: true            # LibreChat 스택이 만든 외부망 (사전 존재 필요).
+  litellm-gateway_default:
+    external: true            # LiteLLM 게이트웨이 외부망.

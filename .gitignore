@@ -4,8 +4,27 @@
 .team/output/
 .team/logs/
 *.log
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+
+# 가상환경 (worktree 안에 만들 경우 대비 — 커밋 금지)
+venv/
+.venv/
+
+# 시크릿 — .env 커밋 금지 (.env.example 만 커밋)
 .env
 .env.*
+!.env.example
+
+# DB 데이터 볼륨(로컬 바인드 시)
+pgdata/
+
 node_modules/
