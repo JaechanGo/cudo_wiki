@@ -12,6 +12,7 @@ import httpx
 from app.common.config import get_settings
 from app.ingest.bizbox_client import (
     _ACTION_LOGIN_PATH,
+    _BROWSER_HEADERS,
     _LOGIN_PAGE_PATH,
     _security_encrypt,
 )
@@ -25,7 +26,9 @@ def main() -> int:
         print("[!] 자격 미설정 — .env 의 BIZBOX_USER/PASSWORD 확인 후 컨테이너 재시작")
         return 2
 
-    cli = httpx.Client(base_url=base, timeout=30.0, follow_redirects=True)
+    cli = httpx.Client(
+        base_url=base, timeout=30.0, follow_redirects=True, headers=_BROWSER_HEADERS
+    )
 
     r1 = cli.get(_LOGIN_PAGE_PATH)
     blocked1 = ("비정상" in r1.text) or ("차단" in r1.text)

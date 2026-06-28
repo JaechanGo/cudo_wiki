@@ -67,6 +67,17 @@ _ACTION_LOGIN_PATH = "/gw/uat/uia/actionLogin.do"
 # 로그인 페이지 JS 의 정적 AES 키(전사 동일·공개 — 비밀 아님). key == iv, AES-128-CBC-PKCS7.
 _LOGIN_AES_KEY = b"jIBQW9QlRqV#DT(C"
 
+# BizBox anti-bot("비정상 로그인 페이지 접근으로 차단") 회피용 브라우저 헤더. httpx 기본
+# User-Agent(python-httpx/*)가 봇으로 분류될 수 있어 일반 브라우저 시그니처로 위장(읽기 크롤만).
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+}
+
 
 def _security_encrypt(plain: str) -> str:
     """로그인 페이지 ``securityEncrypt()`` 재현: AES-128-CBC-PKCS7 → base64 → ``'!'+`` → encodeURIComponent."""
@@ -102,7 +113,8 @@ class HttpBizboxClient:
             import httpx
 
             self._client = httpx.Client(
-                base_url=self._base, timeout=self._timeout, follow_redirects=True
+                base_url=self._base, timeout=self._timeout, follow_redirects=True,
+                headers=_BROWSER_HEADERS,  # anti-bot 회피(브라우저 시그니처).
             )
         return self._client
 
