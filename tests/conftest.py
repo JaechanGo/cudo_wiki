@@ -8,6 +8,7 @@ DSN 결정 우선순위:
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -19,6 +20,39 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # testcontainers 가 기동할 PGroonga 이미지 (compose 와 동일 핀).
 PGROONGA_IMAGE = "groonga/pgroonga:4.0.6-debian-17"
+
+
+def _ensure_docker_host() -> None:
+    """testcontainers 가 docker 데몬에 붙도록 환경을 정합 (macOS Docker Desktop 등).
+
+    docker CLI 는 되는데 Python docker SDK(testcontainers 백엔드)는 안 붙는 불일치 3종을 보정:
+    1. **소켓 경로**: CLI 는 비표준 context 소켓을 쓰지만 SDK 는 기본 ``/var/run/docker.sock``
+       만 봄 → ``docker context`` 의 Host 를 ``DOCKER_HOST`` 로 주입.
+    2. **자격증명 헬퍼**: ``credsStore`` 헬퍼(예 docker-credential-desktop)가 PATH 에 없으면
+       이미지/ryuk 풀이 StoreError 로 실패 → Docker.app 의 bin 을 PATH 에 보강.
+    3. **ryuk reaper**: 세션 픽스처가 ``container.stop()`` 으로 직접 정리하므로 ryuk 불필요 →
+       비활성(setdefault 라 사용자 override 가능).
+    실패(미설치 등)는 조용히 무시 → 상위 skip-guard 가 처리.
+    """
+    os.environ.setdefault("TESTCONTAINERS_RYUK_DISABLED", "true")
+    for d in (
+        "/Applications/Docker.app/Contents/Resources/bin",
+        str(Path.home() / ".docker" / "bin"),
+    ):
+        if os.path.isdir(d) and d not in os.environ.get("PATH", "").split(os.pathsep):
+            os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
+    if os.getenv("DOCKER_HOST"):
+        return
+    try:
+        out = subprocess.run(
+            ["docker", "context", "inspect"],
+            capture_output=True, text=True, timeout=10,
+        )
+        host = json.loads(out.stdout)[0]["Endpoints"]["docker"]["Host"]
+        if host:
+            os.environ["DOCKER_HOST"] = host
+    except Exception:  # docker 미설치/오류 → DOCKER_HOST 미설정 유지, skip-guard 처리.
+        pass
 
 
 def _split_dsn(url: str) -> dict[str, str]:
@@ -44,21 +78,24 @@ def db_dsn():
         yield _split_dsn(env_url)
         return
 
+    _ensure_docker_host()
     try:
         from testcontainers.postgres import PostgresContainer
     except Exception:  # pragma: no cover
         pytest.skip("DB 미가용: TEST_DATABASE_URL 미설정 & testcontainers 미설치")
 
-    container = PostgresContainer(
-        image=PGROONGA_IMAGE,
-        username="cudo",
-        password="cudo",
-        dbname="cudo_wiki",
-        driver="psycopg",
-    )
+    # 컨테이너 생성·기동을 한 try 로 감싼다 — testcontainers 4.x 는 docker 클라이언트를
+    # 생성 시점에 만들 수 있어, daemon/소켓 부재 예외가 생성자에서 날 수 있다(→ skip-guard).
     try:
+        container = PostgresContainer(
+            image=PGROONGA_IMAGE,
+            username="cudo",
+            password="cudo",
+            dbname="cudo_wiki",
+            driver="psycopg",
+        )
         container.start()
-    except Exception as exc:  # docker daemon down 등
+    except Exception as exc:  # docker daemon down / 소켓 부재 등
         pytest.skip(f"pgroonga 컨테이너 기동 불가(daemon down 등): {exc}")
 
     try:

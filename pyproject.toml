@@ -18,10 +18,17 @@ dependencies = [
     "alembic>=1.13",                # SQLAlchemy 동반 — ORM 미사용, raw DDL 실행기로만
     "pydantic-settings>=2.1",
     "mcp>=1.2",                     # Python MCP SDK (streamable-http)
-    "httpx>=0.27",                  # GLM(LiteLLM) 비동기 리랭크 호출 (서브시스템 B, plan D-10)
+    "httpx>=0.27",                  # GLM(LiteLLM) 리랭크(B, plan D-10) + BizBox 세션·ocr-shim(A, plan §11)
+    # ── 인제스트 파이프라인(Task 007-A, plan §11) ──────────────────
+    "beautifulsoup4>=4.12",         # 목록/글 HTML 표·iframe 파싱
+    "lxml>=5.0",                    # bs4 파서 백엔드(빠른 HTML/XML)
+    "openpyxl>=3.1",                # xlsx 수당표/전결표 셀 추출
 ]
 
 [project.optional-dependencies]
+# HWP 텍스트 추출(pyhwp). 빌드 불안정 → 하드 의존성에서 분리(LibreOffice headless 폴백 전제).
+# 코드는 함수 내부 lazy import 로만 사용 → 부재 시 graceful degrade. plan §11/§13.
+extract-hwp = ["pyhwp"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
