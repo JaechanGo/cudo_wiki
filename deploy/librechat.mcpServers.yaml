@@ -22,12 +22,21 @@
 #   C 는 헤더 키를 소문자 정규화 비교하므로 대소문자 무관하나, 가독성 위해 소문자로 둡니다.
 # ════════════════════════════════════════════════════════════════════════════
 
+# ── SSRF/리다이렉트 가드 (라이브 실측 2026-06-29) ────────────────────────────────
+#   LibreChat 은 MCP URL 을 SSRF 검증한다. 내부 서비스명/사설 IP 는 ★ mcpSettings.allowedAddresses
+#   에 host:port 로 명시해야 'Domain ... is not allowed' 가 풀린다.
+mcpSettings:
+  allowedAddresses:
+    - "cudo-wiki-mcp:8080"   # 내부 서비스 host:port (프로토콜·경로 없이). 포트 변경 시 동기.
+
 mcpServers:
   cudo-wiki:
     type: streamable-http
-    # 서비스명 DNS(호스트 포트 비노출). 최종 경로 = /mcp (server.py: mount '/mcp' + streamable_http_path '/').
-    # 포트는 ${MCP_PORT} 기본 8080. yaml 은 compose env 보간을 받지 않으므로 직접 표기 — 포트 변경 시 이 한 줄 수정.
-    url: http://cudo-wiki-mcp:8080/mcp
+    # 서비스명 DNS(호스트 포트 비노출). server.py mount '/mcp' + streamable_http_path '/' →
+    # 정식 경로는 ★ '/mcp/'(끝 슬래시). 슬래시 없이 '/mcp' 로 두면 서버가 '/mcp/' 로 307 리다이렉트
+    # → LibreChat 이 'Blocked redirect to private/reserved address' 로 차단 → 0 tools.
+    # 따라서 반드시 '/mcp/' 로 표기. 포트(${MCP_PORT} 기본 8080) 변경 시 이 줄 + allowedAddresses 동기.
+    url: http://cudo-wiki-mcp:8080/mcp/
     # C instructions(_INSTRUCTIONS, server.py 27–34: 도구7·결정론 인용·근거없으면 기권·헤더 ACL)를 모델에 주입.
     serverInstructions: true
     # 도구 호출 타임아웃(ms) — 검색(PGroonga) + GLM 리랭크 왕복 여유.
