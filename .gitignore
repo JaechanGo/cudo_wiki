@@ -1,0 +1,11 @@
+.DS_Store
+.worktrees/
+.omc/
+.team/output/
+.team/logs/
+*.log
+__pycache__/
+*.pyc
+.env
+.env.*
+node_modules/
