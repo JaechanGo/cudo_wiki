@@ -17,7 +17,7 @@ dependencies = [
     "psycopg[binary,pool]>=3.1",   # psycopg3: AsyncConnectionPool(런타임) + SQLAlchemy(+psycopg) 양쪽
     "alembic>=1.13",                # SQLAlchemy 동반 — ORM 미사용, raw DDL 실행기로만
     "pydantic-settings>=2.1",
-    "mcp>=1.2",                     # Python MCP SDK (streamable-http)
+    "mcp>=1.8,<2",                  # Python MCP SDK (streamable-http). [Task009 M-1] 상·하한 묶음 — 2.x 모듈경로/헤더API 이동으로 R0 server.py(FastMCP·streamable_http_app) 회귀 방지.
     "httpx>=0.27",                  # GLM(LiteLLM) 리랭크(B, plan D-10) + BizBox 세션·ocr-shim(A, plan §11)
     # ── 인제스트 파이프라인(Task 007-A, plan §11) ──────────────────
     "beautifulsoup4>=4.12",         # 목록/글 HTML 표·iframe 파싱

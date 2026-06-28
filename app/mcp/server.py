@@ -13,10 +13,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from app.common.config import get_settings
-from app.common.db import close_pool, get_pool
+from app.common.db import close_pool, healthcheck, open_pool
 from app.common.logging import configure_logging, get_logger
+from app.mcp.tools import register_all
 
 _settings = get_settings()
 configure_logging(_settings.log_level)
@@ -24,22 +26,40 @@ _log = get_logger("app.mcp.server")
 
 _INSTRUCTIONS = (
     "CUDO 사내 위키 MCP — 사내 규정/전결규정/공지/매뉴얼 검색·인용. "
+    "도구 7종(search_regulations·get_regulation·get_attachment·list_boards·"
+    "get_approval_authority·aggregate_compare·get_regulation_diff). "
     "인용은 메타데이터 결정론(LLM 조번호 생성 금지), 근거 없으면 기권. "
-    "(R0 골격: 도구 미구현 — 후속 태스크에서 7종 추가.)"
+    "신원·권한은 인증세션 헤더 기반(ACL/PII 마스킹). "
+    "aggregate_compare 는 v1 에서 보드별 현행 규정 카운트 비교만 지원(차집합·추세 미지원)."
 )
 
-# session_manager 는 streamable_http_app() 호출 시 lazy 생성되므로 먼저 앱을 만든다.
+# ★ DNS rebinding 보호 비활성화(Task009 §7.2): 본 서버는 내부 도커망 전용(compose 호스트 포트
+# 미공개, networks internal+librechat). FastMCP 기본은 host=127.0.0.1 일 때 보호를 자동 활성화하고
+# allowed_hosts 를 localhost 변형으로만 제한 → LibreChat 의 Host(예 'cudo-wiki-mcp:8080')가 거부됨.
+# 내부 신뢰망이라 브라우저 기반 DNS rebinding 위협이 없으므로 비활성화한다(외부 노출 시 D 가 재고).
+_TRANSPORT_SECURITY = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
 # streamable_http_path='/' → FastAPI 에서 '/mcp' 로 mount 하면 최종 경로 '/mcp'.
-mcp = FastMCP(name="cudo-wiki", instructions=_INSTRUCTIONS, streamable_http_path="/")
+mcp = FastMCP(
+    name="cudo-wiki",
+    instructions=_INSTRUCTIONS,
+    streamable_http_path="/",
+    transport_security=_TRANSPORT_SECURITY,
+)
+
+# C: 도구 7종 등록(얇은 핸들러 + impl_* 분리) — 앱 생성 전에 등록. 개수는 /healthz 가 보고.
+_TOOL_COUNT = register_all(mcp)
+
+# session_manager 는 streamable_http_app() 호출 시 lazy 생성.
 _mcp_app = mcp.streamable_http_app()
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    # R0: 풀 객체만 lazy 생성(연결은 도구 구현 후 open_pool 로). MCP 세션 매니저 구동.
-    get_pool()
+    # C: 풀을 실제로 연다(wait=False → 비차단, 연결은 lazy/백그라운드). MCP 세션 매니저 구동.
+    await open_pool()
     async with mcp.session_manager.run():
-        _log.info("cudo-wiki MCP 기동 (R0 골격, 도구 0개)")
+        _log.info("cudo-wiki MCP 기동 (도구 %d종)", _TOOL_COUNT)
         yield
     await close_pool()
 
@@ -50,5 +70,20 @@ app.mount("/mcp", _mcp_app)
 
 @app.get("/healthz")
 async def healthz() -> dict[str, object]:
-    """라이브니스 — DB 비의존(R0). 도구 구현 후 readiness 는 별도."""
-    return {"status": "ok", "service": "cudo-wiki-mcp", "tools": 0}
+    """라이브니스 — DB 비의존. 도구 등록 개수 보고(스모크 검증용)."""
+    return {"status": "ok", "service": "cudo-wiki-mcp", "tools": _TOOL_COUNT}
+
+
+@app.get("/readyz")
+async def readyz() -> dict[str, object]:
+    """레디니스 — DB 도달(SELECT 1) 확인. 실패 시 503."""
+    from fastapi import Response
+
+    try:
+        ok = await healthcheck()
+    except Exception as exc:  # 연결 실패 등 — not ready.
+        _log.warning("readyz DB 체크 실패: %s", exc)
+        ok = False
+    if not ok:
+        return Response(status_code=503)
+    return {"status": "ready", "service": "cudo-wiki-mcp"}
