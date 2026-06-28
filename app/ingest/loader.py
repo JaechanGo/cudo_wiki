@@ -484,3 +484,64 @@ def supersede_authority(
                 new_cell.effective_date, new_cell.order_seq,
             ),
         ).fetchone()[0]
+
+
+# ── chunk 빌드 (검색 인덱스 단위) ────────────────────────────────────────────
+
+
+def rebuild_post_chunks(conn: Connection, post_id: int) -> int:
+    """글 1건의 검색 chunk 재생성(멱등) — ★ 인제스트(A)↔검색(B) 연결고리.
+
+    검색(``query_builder``)은 ``FROM chunk`` 로만 조회하므로, 적재된 clause/본문이
+    chunk 로 들어가야 검색에 노출된다. 글 단위로:
+      ① 이 글에서 파생된 기존 chunk 전부 삭제(재크롤 멱등)
+      ② 규정 조항(clause) → ``chunk_class='clause'`` (canonical_clause_id 보존 → 정밀 인용)
+      ③ 글 본문(post.body_text) → ``chunk_class='notice_section'`` (조항 없는 공지/일반보드 폴백)
+    tokenized(mecab)는 1차 NULL — body PGroonga(N-gram) 인덱스만으로 한국어 FTS 동작.
+
+    Returns: 생성된 chunk 수.
+    """
+    conn.execute(
+        """
+        DELETE FROM chunk WHERE source_post_id = %(pid)s
+          OR clause_id IN (
+            SELECT c.clause_id FROM clause c
+            JOIN regulation r ON r.regulation_id = c.regulation_id
+            WHERE r.source_post_id = %(pid)s)
+        """,
+        {"pid": post_id},
+    )
+    conn.execute(
+        """
+        INSERT INTO chunk (chunk_class, board_id, clause_id, body, canonical_clause_id,
+                           clause_label, seq_in_source, posted_at, is_current, char_len)
+        SELECT 'clause', r.board_id, c.clause_id, c.text, c.canonical_clause_id,
+               c.clause_label, c.order_seq, p.posted_at, c.is_current, length(c.text)
+        FROM clause c
+        JOIN regulation r ON r.regulation_id = c.regulation_id
+        JOIN post p ON p.post_id = r.source_post_id
+        WHERE r.source_post_id = %(pid)s AND c.is_current
+        """,
+        {"pid": post_id},
+    )
+    conn.execute(
+        """
+        INSERT INTO chunk (chunk_class, board_id, source_post_id, body,
+                           seq_in_source, posted_at, is_current, char_len)
+        SELECT 'notice_section', board_id, post_id, body_text, 0, posted_at, is_current,
+               length(body_text)
+        FROM post
+        WHERE post_id = %(pid)s AND body_text IS NOT NULL AND length(btrim(body_text)) > 0
+        """,
+        {"pid": post_id},
+    )
+    row = conn.execute(
+        """
+        SELECT count(*) FROM chunk WHERE source_post_id = %(pid)s
+          OR clause_id IN (SELECT c.clause_id FROM clause c
+              JOIN regulation r ON r.regulation_id = c.regulation_id
+              WHERE r.source_post_id = %(pid)s)
+        """,
+        {"pid": post_id},
+    ).fetchone()
+    return int(row[0]) if row else 0

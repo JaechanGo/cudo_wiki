@@ -164,14 +164,38 @@ class HttpBizboxClient:
         return resp.text
 
     def fetch_post(self, board_no: int, art_no: int) -> str:
+        """viewPost.do GET — listForm 필드(name=artNo, remarkNo=-1 등) 전체 + Referer(라이브 실측).
+
+        articleNo 가 아니라 **name=artNo**(폼 input id=articleNo, 전송 name=artNo)로 보내야
+        "읽기 권한 없음" 응답을 피한다. listForm 의 정렬/검색 hidden 도 함께 전송(브라우저 동등).
+        """
         resp = self._ensure_client().get(
-            _POST_VIEW_PATH, params={"boardNo": board_no, "artNo": art_no}
+            _POST_VIEW_PATH,
+            params={
+                "boardNo": board_no,
+                "artNo": art_no,
+                "currentPage": 1,
+                "remarkNo": -1,
+                "siteflag": -1,
+                "sorting": "sortOrderSort",
+                "sortOrderSort": "asc",
+                "searchField": "",
+                "searchValue": "",
+                "startDate": "",
+                "endDate": "",
+                "countPerPage": 30,
+                "attentionCnt": 0,
+            },
+            headers={"Referer": self._base + _BOARD_LIST_PATH},
         )
         resp.raise_for_status()
         return resp.text
 
     def fetch_inner_content(self, bizbox_link_url: str) -> str:
-        resp = self._ensure_client().get(bizbox_link_url)
+        """2-hop 본문(viewPostArtContent.do) GET. crawler 가 만든 상대경로를 그대로 요청."""
+        resp = self._ensure_client().get(
+            bizbox_link_url, headers={"Referer": self._base + _POST_VIEW_PATH}
+        )
         resp.raise_for_status()
         return resp.text
 

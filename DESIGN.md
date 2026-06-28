@@ -58,13 +58,15 @@ streamable-http 런타임. 도구 7: `search_regulations` · `get_regulation` ·
 
 ## 7. 데이터 원천 — BizBox 크롤 계약
 - `http://gw.cudo.co.kr/gw/bizbox.do` (세션쿠키 JSESSIONID, Java/EDMS). 셸 bizbox.do → iframe `_content` EDMS.
-- 목록: `GET /edms/board/viewBoard.do?boardNo=&currentPage=&countPerPage=` → HTML 표(번호·제목·작성자·조회·좋아요·등록일), 글은 `viewPost(artNo)`
-- 글: `GET /edms/board/viewPost.do?boardNo=&artNo=` → 메타 + 본문(**nested iframe `bizboxLink.do?url=<urlenc /edms/..>` 2-hop**)
-- 첨부 다운로드: `/gw/cmm/file/edmsDownloadProc.do`(메인) · `/edms/board/downloadFile.do` · `/edms/doc/downloadFile.do`. 파일필드 `fileNm/fileRnm/filePath/saveFileName/orignlFileName/fileExt`
-- 인증(라이브 실측 2026-06-29 — 구현·검증 `app/ingest/bizbox_client.py:login()`): **eGov + Spring Security 3단계, AES 암호화**.
-  ① GET `/gw/uat/uia/egovLoginUsr.do`(세션·anti-bot) → ② POST `/gw/uat/uia/actionLogin.do`(id/password 를 `securityEncrypt()`=AES-128-CBC-PKCS7+base64+`'!'`+encodeURIComponent, 정적키=iv `jIBQW9QlRqV#DT(C`, Referer 필수; 암호화 id 50자 초과 시 id/id_sub1/id_sub2 분할) → Spring Security 자동제출 폼 응답 → ③ POST `/gw/j_spring_security_check`(폼의 j_username/j_password) → 인증 세션. 자격은 .env.
-- ⚠️ **boardNo ≠ jstree 노드 id**: 트리 노드 id `1401000286`(사내규정)의 실제 boardNo = **`900000286`**(뒤 6자리 일치). §위 19보드 표는 jstree id → 실제 boardNo 매핑 필요(포털/트리 데이터에서 확정).
-- ⚠️ **글 목록은 AJAX 로드**: `viewBoard.do` 응답은 셸(검색폼·좌측트리·페이징 컨테이너, `totalCount`=106 만 포함)이고 `<table>`/`<tr>` 행 아님. 실제 글 행은 **별도 AJAX 엔드포인트**가 반환 → 현재 목 fixture 기반 `<tr>` 파서(`crawler._parse_list_rows`) 미작동, list/post/body/첨부 파싱을 라이브 구조로 재작성 필요. 증분: artNo/등록일.
+- **인증**(라이브 실측·검증 `app/ingest/bizbox_client.py:login()`): eGov+Spring Security **3단계 + AES**.
+  ① GET `/gw/uat/uia/egovLoginUsr.do`(세션·anti-bot) → ② POST `/gw/uat/uia/actionLogin.do`(id/password 를 `securityEncrypt()`=AES-128-CBC-PKCS7+base64+`'!'`+encodeURIComponent, 정적키=iv `jIBQW9QlRqV#DT(C`, **Referer 필수**; 암호화 id 50자 초과 시 id/id_sub1/id_sub2 분할) → Spring Security 자동제출 폼(`j_username`/`j_password`, 서버가 요청 IP 박음) → ③ POST `/gw/j_spring_security_check` → 인증 세션. 자격은 .env.
+- **boardNo = 실 boardNo ≠ 좌측 jstree 노드 id**. 변환규칙(23보드 전수검증): jstree `1401000XXX`→`900000XXX`(900000000+id%1e6), `501000XXX`→`XXX`(id%1e6). `board_seed.py` 에 실 boardNo 직박음(주석에 jstree id 병기).
+- **목록**: `GET /edms/board/viewBoard.do?boardNo=&currentPage=&countPerPage=` → 응답 HTML 의 **인라인 JS 배열 `var exData = [ {...}, ... ];`** 파싱(AJAX 아님). 행 스키마: `art_seq_no`(=artNo)·`art_title`·`mbr_nick`(작성자)·`write_date`·`read_cnt`·`add_file_yn`·`notice_yn`·`num`. 최신순 → 워터마크 조기종료.
+- **글 메타**: `GET /edms/board/viewPost.do?boardNo=&artNo=&remarkNo=-1&siteflag=-1&…`(listForm 필드 전체, **GET·name=artNo**). 메타는 목록 exData 재사용.
+- **본문(2-hop)**: viewPost HTML 의 iframe `viewPostArtContent.do?boardNo=&artNo=` → 실 본문 HTML(`clean_html` style/script 제거 정제). (구 `bizboxLink.do` 가정 폐기.)
+- **첨부**: `appendFileTop.do?fileType=R&…`(boardNo/artNo JS 동적주입) + `/edms/board/download.do` — 1차 미수집(후속).
+- **검색 chunk(A↔B 연결)**: `loader.rebuild_post_chunks` 가 글 단위로 clause→`chunk_class=clause`(canonical_clause_id 보존)·본문→`chunk_class=notice_section` 멱등 생성. 검색(`query_builder`)이 `FROM chunk` 만 보므로 필수. tokenized(mecab) 1차 NULL(body N-gram FTS).
+- 첨부 다운로드 후보: `/gw/cmm/file/edmsDownloadProc.do` · `/edms/board/download.do`. 파일필드 `fileNm/saveFileName/orignlFileName/fileExt`.
 
 ### 수집 대상 19개 보드 (사내게시판, boardNo=jstree node id)
 | boardNo | 게시판 | 비고 |

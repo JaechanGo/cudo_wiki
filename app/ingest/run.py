@@ -27,6 +27,7 @@ from app.ingest.extract.excel import extract_excel_cells
 from app.ingest.health import detect_stalled, update_heartbeat
 from app.ingest.loader import (
     advance_ingest_state,
+    rebuild_post_chunks,
     upsert_attachments,
     upsert_authority,
     upsert_board_seed,
@@ -42,7 +43,7 @@ if TYPE_CHECKING:
 
     from app.ingest.bizbox_client import BizboxClient
     from app.ingest.extract.ocr import OcrClient
-    from app.ingest.models import ExtractResult, RawAttachment, RawPost
+    from app.ingest.models import ExtractResult, PostRef, RawAttachment, RawPost
 
 # board_no → BoardSeed(보드 메타). board_class 로 규정/일반 분기.
 _SEED_BY_NO = {b.bizbox_board_no: b for b in BOARDS}
@@ -137,11 +138,14 @@ def process_post(
     board_id: int,
     board_no: int,
     board_class: str,
-    art_no: int,
+    ref: PostRef,
     ocr_client: OcrClient | None = None,
 ) -> IngestCounts:
-    """글 1건: 크롤→정제→추출→적재(규정이면 clause/authority). 호출부가 트랜잭션을 잡는다."""
-    raw = crawl_post(client, board_no, art_no)
+    """글 1건: 크롤→정제→추출→적재(규정이면 clause/authority). 호출부가 트랜잭션을 잡는다.
+
+    메타(title/author/posted_at/view_count)는 목록 ``ref`` 에 완비 → crawl_post 가 재사용.
+    """
+    raw = crawl_post(client, board_no, ref)
     body_text = clean_html(raw.body_html, None)
 
     atts, results = _download_and_extract(client, raw, ocr_client)
@@ -171,6 +175,9 @@ def process_post(
                 authorities = parse_authority_matrix(cells, reg_id)
                 upsert_authority(conn, reg_id, authorities)
                 n_auth += len(authorities)
+
+    # ★ A↔B 연결: 적재된 clause/본문 → 검색 chunk 재생성(멱등). 없으면 검색에 노출 안 됨.
+    rebuild_post_chunks(conn, post_id)
 
     return IngestCounts(posts=1, attachments=len(att_ids), clauses=n_clauses, authorities=n_auth)
 
@@ -209,7 +216,7 @@ def crawl_board(
             with conn.transaction():
                 c = process_post(
                     conn, client, board_id=board_id, board_no=board_no,
-                    board_class=board_class, art_no=ref.art_no, ocr_client=ocr_client,
+                    board_class=board_class, ref=ref, ocr_client=ocr_client,
                 )
             posts += c.posts
             atts += c.attachments

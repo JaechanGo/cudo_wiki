@@ -1,39 +1,36 @@
-"""보드 순회·목록/글 파싱·2-hop 본문 (plan §2·§5). HTML→raw dataclass.
+"""보드 순회·목록/글 파싱·2-hop 본문 (plan §2·§5, DESIGN §7 라이브 실측 2026-06-29).
 
-- ``list_post_refs``: 목록 HTML 표 파싱 → 워터마크 초과분만(최신순, 워터마크 도달 시 조기종료).
-- ``extract_inner_url``: viewPost HTML 의 iframe ``bizboxLink.do?url=<urlenc>`` → 디코드된 실경로.
-- ``crawl_post``: viewPost 메타 + 2-hop 본문 + 첨부 ref 파싱 → ``RawPost``.
+라이브 BizBox(다우오피스 EDMS) 실측 계약:
+- ``list_post_refs``: ``viewBoard.do`` 응답의 인라인 JS 배열 ``var exData = [ {...}, ... ];``
+  파싱(목록 행은 ``<table>`` 이 아니라 클라이언트 JS 템플릿이 그리는 데이터). 워터마크 초과분만.
+- ``extract_inner_url``: viewPost HTML 의 본문 iframe ``viewPostArtContent.do?boardNo=&artNo=``
+  (구 bizboxLink.do 가정 폐기) → 2-hop 실 본문 경로.
+- ``crawl_post``: viewPost(메타는 목록 ``PostRef`` 재사용) + 2-hop 본문 → ``RawPost``.
+  첨부(``appendFileTop.do`` + ``download.do``)는 boardNo/artNo 동적주입 구조라 1차 생략(후속).
 
-bs4/lxml 파싱. 본문 정제(clean_html)·content_hash 는 호출부(run)가 적용한다 — 여기는 raw HTML 까지.
+bs4/lxml + json 파싱. 본문 정제(clean_html)·content_hash 는 호출부(run)가 적용 — 여기는 raw 까지.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
-from urllib.parse import parse_qs, unquote, urlsplit
 
-from bs4 import BeautifulSoup
-
-from app.ingest.models import PostRef, RawAttachment, RawPost
+from app.ingest.models import PostRef, RawPost
 
 if TYPE_CHECKING:
     from app.ingest.bizbox_client import BizboxClient
 
-_VIEW_POST_RE = re.compile(r"viewPost\(\s*(\d+)\s*\)")
 _DATE_RE = re.compile(r"(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})")
-_DIGITS_RE = re.compile(r"\d+")
 
-# 확장자 → attachment.kind CHECK enum.
-_EXT_KIND = {
-    "hwp": "hwp", "hwpx": "hwp",
-    "pdf": "pdf",
-    "xlsx": "excel", "xls": "excel", "xlsm": "excel",
-    "png": "image", "jpg": "image", "jpeg": "image", "gif": "image",
-    "tif": "image", "tiff": "image", "bmp": "image",
-    "doc": "word", "docx": "word",
-}
+# viewBoard.do 응답의 인라인 목록 데이터: ``var exData = [ ... ];`` (최신순).
+_EXDATA_RE = re.compile(r"var\s+exData\s*=\s*(\[.*?\])\s*;", re.S)
+# JS 객체 리터럴의 트레일링 콤마(`,]` `,}`) → JSON 파서가 거부하므로 제거.
+_TRAILING_COMMA_RE = re.compile(r",(\s*[\]}])")
+# viewPost HTML 의 2-hop 본문 iframe 경로.
+_INNER_RE = re.compile(r"viewPostArtContent\.do\?([^\"'\s>]+)")
 
 _MAX_PAGES = 200  # --full 무한루프 방지(plan §4 페이지네이션 안전캡).
 
@@ -50,43 +47,57 @@ def _parse_date(text: str | None) -> datetime | None:
         return None
 
 
-def _kind_from_ext(ext: str | None) -> str:
-    return _EXT_KIND.get((ext or "").lower().lstrip("."), "etc")
+def _to_int(value: object) -> int:
+    """read_cnt 등 문자열/정수 혼재 필드 → int(실패 시 0)."""
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return 0
 
 
-# ── 목록 ─────────────────────────────────────────────────────────────────────
+# ── 목록 (exData JSON) ────────────────────────────────────────────────────────
+
+
+def _parse_exdata(html: str) -> list[dict]:
+    """viewBoard.do 응답에서 ``var exData = [...]`` 추출 → dict 리스트."""
+    m = _EXDATA_RE.search(html)
+    if not m:
+        return []
+    raw = _TRAILING_COMMA_RE.sub(r"\1", m.group(1))
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    return [d for d in data if isinstance(d, dict)] if isinstance(data, list) else []
+
+
+def _row_to_ref(d: dict) -> PostRef | None:
+    """exData 1요소 → PostRef. art_seq_no 없으면 None(공지 placeholder 등)."""
+    art = d.get("art_seq_no")
+    if art is None:
+        return None
+    try:
+        art_no = int(art)
+    except (TypeError, ValueError):
+        return None
+    return PostRef(
+        art_no=art_no,
+        title=(d.get("art_title") or "").strip(),
+        author=(d.get("mbr_nick") or None),
+        posted_at=_parse_date(d.get("write_date")),
+        view_count=_to_int(d.get("read_cnt")),
+        has_attachment=(d.get("add_file_yn") == "Y"),
+    )
 
 
 def _parse_list_rows(html: str) -> list[PostRef]:
-    """목록 HTML 표 → PostRef 목록(표 출현순 = 최신순 가정)."""
-    soup = BeautifulSoup(html, "lxml")
+    """목록 HTML(exData JSON) → PostRef 목록(배열 출현순 = 최신순)."""
     refs: list[PostRef] = []
-    for tr in soup.select("tr"):
-        row_html = str(tr)
-        m = _VIEW_POST_RE.search(row_html)
-        if not m:
-            continue
-        art_no = int(m.group(1))
-        tds = tr.find_all("td")
-        cells = [td.get_text(" ", strip=True) for td in tds]
-        title = ""
-        link = tr.find("a")
-        if link:
-            title = link.get_text(" ", strip=True)
-        # 작성자: 'author' 클래스 우선, 없으면 위치(3번째 셀).
-        author = None
-        author_td = tr.find("td", class_="author")
-        if author_td:
-            author = author_td.get_text(" ", strip=True)
-        elif len(cells) >= 3:
-            author = cells[2]
-        # 등록일: 날짜 패턴이 있는 셀.
-        posted_at = None
-        for c in cells:
-            posted_at = _parse_date(c)
-            if posted_at:
-                break
-        refs.append(PostRef(art_no=art_no, title=title, author=author or None, posted_at=posted_at))
+    for d in _parse_exdata(html):
+        ref = _row_to_ref(d)
+        if ref is not None:
+            refs.append(ref)
     return refs
 
 
@@ -100,8 +111,8 @@ def list_post_refs(
 ) -> list[PostRef]:
     """목록 순회 → 워터마크 초과 PostRef(최신순). 워터마크 도달 시 조기종료(plan §4).
 
-    페이지 1부터 순회하며, 한 페이지에서 워터마크 이하 글을 만나면 더 이상 페이지를 받지 않는다
-    (목록이 최신순 정렬이므로 이후는 모두 수집분). 워터마크가 없으면(--full/최초) 빈 페이지까지.
+    exData 는 art_seq_no 내림차순(최신 먼저)이므로, 워터마크 이하 글을 처음 만나면
+    이후 페이지는 모두 수집분 → 더 받지 않는다(--full/최초는 빈 페이지까지).
     """
     out: list[PostRef] = []
     page = 1
@@ -129,110 +140,42 @@ def list_post_refs(
     return out
 
 
-# ── 2-hop ────────────────────────────────────────────────────────────────────
+# ── 2-hop 본문 ────────────────────────────────────────────────────────────────
 
 
 def extract_inner_url(view_post_html: str) -> str | None:
-    """viewPost HTML 의 iframe ``bizboxLink.do?url=<urlenc>`` → URL-decode 된 실경로.
+    """viewPost HTML 의 본문 iframe ``viewPostArtContent.do?boardNo=&artNo=`` 실경로.
 
-    iframe 이 없거나 url 파라미터가 없으면 None(2-hop 불필요, 인라인 본문).
+    iframe 이 없으면 None(인라인 본문 → 호출부가 viewPost HTML 자체를 본문으로 사용).
     """
-    soup = BeautifulSoup(view_post_html, "lxml")
-    for iframe in soup.find_all("iframe"):
-        src = iframe.get("src") or ""
-        if "bizboxLink.do" not in src and "url=" not in src:
-            continue
-        query = urlsplit(src).query
-        url_vals = parse_qs(query).get("url")
-        if url_vals:
-            return unquote(url_vals[0])
-    return None
+    m = _INNER_RE.search(view_post_html)
+    if not m:
+        return None
+    return "/edms/board/viewPostArtContent.do?" + m.group(1)
 
 
-def _parse_attachments(soup: BeautifulSoup, board_no: int) -> list[RawAttachment]:
-    """첨부 ref 파싱. 파일 링크의 data-* 필드(DESIGN §7) → RawAttachment.
-
-    필드: fileNm/fileRnm/filePath/saveFileName/orignlFileName/fileExt/fileSeq.
-    download_url 은 링크 href 우선, 없으면 메인 다운로드 경로 + saveFileName 으로 합성.
-    """
-    atts: list[RawAttachment] = []
-    for el in soup.select("a.file, .attachments a, [data-filenm], [data-savefilename]"):
-        data = {k.lower(): v for k, v in el.attrs.items()}
-        file_nm = (
-            data.get("data-filenm")
-            or data.get("data-orignlfilename")
-            or el.get_text(" ", strip=True)
-        )
-        if not file_nm:
-            continue
-        save_name = data.get("data-savefilename") or file_nm
-        ext = data.get("data-fileext")
-        if not ext and "." in file_nm:
-            ext = file_nm.rsplit(".", 1)[1]
-        seq = data.get("data-fileseq")
-        href = el.get("href")
-        if href and href.startswith("javascript:"):
-            href = None
-        download_url = href or (
-            f"/gw/cmm/file/edmsDownloadProc.do?boardNo={board_no}&saveFileName={save_name}"
-        )
-        atts.append(
-            RawAttachment(
-                file_name=file_nm,
-                kind=_kind_from_ext(ext),
-                bizbox_file_seq=int(seq) if seq and seq.isdigit() else None,
-                download_url=download_url,
-                file_ext=ext.lower() if ext else None,
-            )
-        )
-    return atts
-
-
-def _meta_text(soup: BeautifulSoup, selector: str) -> str | None:
-    el = soup.select_one(selector)
-    return el.get_text(" ", strip=True) if el else None
-
-
-def crawl_post(client: BizboxClient, board_no: int, art_no: int) -> RawPost:
-    """viewPost.do → 메타 + 2-hop 본문 + 첨부 ref → RawPost.
+def crawl_post(client: BizboxClient, board_no: int, ref: PostRef) -> RawPost:
+    """viewPost.do(메타는 ``ref`` 재사용) + 2-hop 본문(viewPostArtContent.do) → RawPost.
 
     body_text(정제)·content_hash 는 호출부(run)가 채운다 — 여기는 raw body_html 까지.
+    첨부는 1차 미수집(빈 tuple) — appendFileTop.do/download.do 라이브 파싱은 후속(DESIGN §7).
     """
-    view_html = client.fetch_post(board_no, art_no)
-    soup = BeautifulSoup(view_html, "lxml")
-
-    title = (
-        _meta_text(soup, ".post-title")
-        or _meta_text(soup, "h1")
-        or _meta_text(soup, "h2")
-        or ""
-    )
-    author = _meta_text(soup, ".author")
-    dept = _meta_text(soup, ".dept")
-    posted_at = _parse_date(_meta_text(soup, ".date"))
-    views_text = _meta_text(soup, ".views") or ""
-    views_m = _DIGITS_RE.search(views_text)
-    view_count = int(views_m.group()) if views_m else 0
+    view_html = client.fetch_post(board_no, ref.art_no)
 
     inner_url = extract_inner_url(view_html)
-    if inner_url is not None:
-        body_html = client.fetch_inner_content(inner_url)
-    else:
-        body_el = soup.select_one(".post-body, .content, .post-view")
-        body_html = str(body_el) if body_el else view_html
+    body_html = client.fetch_inner_content(inner_url) if inner_url is not None else view_html
 
-    attachments = _parse_attachments(soup, board_no)
-    source_url = f"/edms/board/viewPost.do?boardNo={board_no}&artNo={art_no}"
+    source_url = f"/edms/board/viewPost.do?boardNo={board_no}&artNo={ref.art_no}"
 
     return RawPost(
         board_no=board_no,
-        art_no=art_no,
-        title=title,
+        art_no=ref.art_no,
+        title=ref.title,
         body_html=body_html,
-        author_name=author,
-        author_dept=dept,
-        posted_at=posted_at,
-        view_count=view_count,
+        author_name=ref.author,
+        author_dept=None,  # 부서는 viewPost 페이지 파싱 영역(후속) — 목록 JSON 엔 없음.
+        posted_at=ref.posted_at,
+        view_count=ref.view_count,
         source_url=source_url,
-        attachments=tuple(attachments),
+        attachments=(),
     )

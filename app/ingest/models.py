@@ -20,12 +20,18 @@ from datetime import date, datetime
 
 @dataclass(frozen=True, slots=True)
 class PostRef:
-    """목록 HTML 한 행. 워터마크 비교용 최소 메타(crawler.list_post_refs 산출)."""
+    """목록 한 행(viewBoard.do 의 ``var exData=[...]`` 1요소, crawler.list_post_refs 산출).
+
+    art_no=art_seq_no(본문 진입키), view_count=read_cnt, has_attachment=add_file_yn=='Y'.
+    메타(title/author/posted_at)는 목록 JSON 에 이미 완비 → crawl_post 가 재파싱 없이 사용.
+    """
 
     art_no: int
     title: str
     author: str | None = None
     posted_at: datetime | None = None
+    view_count: int = 0
+    has_attachment: bool = False
 
 
 @dataclass(frozen=True, slots=True)
