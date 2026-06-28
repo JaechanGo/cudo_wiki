@@ -28,3 +28,7 @@ venv/
 pgdata/
 
 node_modules/
+
+# IDE
+.idea/
+.vscode/
