@@ -78,11 +78,18 @@ def _to_int(value: object) -> int:
 
 
 def _parse_exdata(html: str) -> list[dict]:
-    """viewBoard.do 응답에서 ``var exData = [...]`` 추출 → dict 리스트."""
+    """viewBoard.do 응답에서 ``var exData = [...]`` 추출 → dict 리스트.
+
+    BizBox 는 JS 객체 리터럴(JSON 아님)을 내보내므로 JSON 비호환 이스케이프를 보정:
+    - ``\\'`` (제목의 작은따옴표, 예: ``틱낫한 스님의 \\'포옹\\'``) → JSON 에선 invalid escape →
+      ``'`` 로 치환(작은따옴표는 JSON 에서 이스케이프 불필요). 미보정 시 해당 페이지 파싱이
+      통째 실패하고 list_post_refs 가 거기서 조기종료 → 보드 글 대량 누락(공지/독서 등).
+    """
     m = _EXDATA_RE.search(html)
     if not m:
         return []
     raw = _TRAILING_COMMA_RE.sub(r"\1", m.group(1))
+    raw = raw.replace("\\'", "'")  # JS \' → JSON 유효('). 큰따옴표/백슬래시는 JSON 과 호환.
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:

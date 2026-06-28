@@ -84,3 +84,29 @@ def test_list_full_recrawl_paginates_until_empty() -> None:
     stub = _ListStub()
     list_post_refs(stub, board_no=900000286, since_art_no=None, since_posted_at=None)
     assert stub.pages_fetched == [1, 2]
+
+
+class _AposStub:
+    """제목에 JS ``\\'`` 이스케이프(작은따옴표)가 든 exData 를 주는 스텁. page2 는 빈 배열."""
+
+    def login(self) -> None:  # pragma: no cover
+        pass
+
+    def fetch_board_page(self, board_no: int, page: int, per_page: int) -> str:
+        if page != 1:
+            return "<script>var exData = [];</script>"
+        # art_title 값 = \'틱낫한\' 스님 (BizBox 가 작은따옴표를 \' 로 JS 이스케이프 — JSON 비호환).
+        return (
+            '<script>var exData = [\n'
+            '  { "art_seq_no": 5, "art_parent_no": 5, "notice_yn": "N", "add_file_yn": "N",\n'
+            '    "art_title": "\\\'틱낫한\\\' 스님", "mbr_nick": "엄동원",\n'
+            '    "read_cnt": "10", "write_date": "2026-06-22" }\n'
+            '];</script>'
+        )
+
+
+def test_list_parses_js_apostrophe_escape() -> None:
+    r"""제목의 JS ``\'`` 이스케이프가 JSON 파싱을 깨지 않는다(공지 986→349·독서 71→0 누락 회귀 방지)."""
+    refs = list_post_refs(_AposStub(), board_no=900000070, since_art_no=None, since_posted_at=None)
+    assert [r.art_no for r in refs] == [5]
+    assert refs[0].title == "'틱낫한' 스님"  # \' → ' 로 보정되어 작은따옴표 보존
