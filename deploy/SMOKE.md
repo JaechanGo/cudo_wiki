@@ -125,6 +125,12 @@ pytest -m "not integration"
    (서비스명 DNS — 두 컨테이너가 `librechat_default` 망을 공유해야 함.)
 6. **스니펫 병합**: `deploy/librechat.mcpServers.yaml` 의 `cudo-wiki:` 키를 운영 librechat.yaml
    `mcpServers:` 에 추가 → LibreChat 재기동(운영자 절차).
+   > ⚠️ **GLM-5.2 는 추론모델(ADR-005)**: 답변생성 모델(운영 `librechat.yaml` `endpoints`/모델
+   > 설정)의 `max_tokens` 가 작으면 추론 토큰이 한도를 잠식해 **답변이 빈 채로(content='') 잘릴 수
+   > 있습니다**. 운영 endpoint 모델 params 에 ① 넉넉한 `max_tokens`, 또는 ② LiteLLM 모델 정의에
+   > `chat_template_kwargs:{enable_thinking:false}` 를 설정해 잘림을 방지하세요. (위키 MCP 리랭크
+   > 호출은 `app/search/glm_client.py` 가 이미 처리하므로 운영자 조치 불요.)
+
 7. **챗 검증**: "연차휴가 며칠?" / "출장비 전결권자?" 류 질의 → 답변 하단에 출처(조항·시행일·
    원문링크) 표면화 확인(`RENDER_CONVENTIONS.md`). 근거 없는 질의 → 기권 메시지 확인.
 
@@ -151,3 +157,5 @@ pytest -m "not integration"
 - **thumbs→query_log**(FEAT-018): v1 자동 배선 불가 → 범위 밖/후속. `RENDER_CONVENTIONS.md §4` 참조.
 - **첨부 다운로드 URL 발급 주체**(FEAT-011): MCP 정적 서빙 vs 사이드카 미정 → 열린질문.
 - **이미지 base64 인라인**: v1 기본 링크 폴백(볼륨 미마운트). 인라인 활성은 운영 결정 후속.
+- **GLM-5.2 추론모델 답변 잘림**(ADR-005): 운영 endpoint `max_tokens`/`enable_thinking` 설정은
+  운영자 영역(D 코드범위 밖). 리랭크(B/C)는 `app/search/glm_client.py` 가 코드에서 처리됨.

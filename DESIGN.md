@@ -18,7 +18,7 @@
 
 ## 2. 배포 배선 (리콘 005 확정)
 - 도커 네트워크: **`librechat_default`** (필수) + **`litellm-gateway_default`** (GLM 경유용)
-- GLM: **`http://litellm:4000/v1`** (외부 NHN 직결은 현재 TLS 다운 → LiteLLM 경유)
+- GLM: **`http://litellm:4000/v1`** (외부 NHN 직결은 현재 TLS 다운 → LiteLLM 경유) → **ADR-005**(추론모델 대응) 참조
 - OCR: **`http://ocr-shim:8900`** (`POST /v1/ocr`, body `{document:{document_url:"data:application/pdf;base64,.."}}` → `pages[].markdown`)
 - `cudo-wiki-mcp`: 호스트 포트 비노출(서비스명 DNS만), nginx 불필요
 - `librechat.yaml`: `mcpServers` 섹션 **신규 추가** (`type: streamable-http`, `url: http://cudo-wiki-mcp:<PORT>/mcp`, `serverInstructions: true`)
@@ -50,6 +50,7 @@ streamable-http 런타임. 도구 7: `search_regulations` · `get_regulation` ·
 - **ADR-002** 임베딩 v1 없음, phase-2 가산 (트리거: recall@10 < 85%), KURE-v1/bge-m3
 - **ADR-003** 인제스트 2단: 핵심(106 규정 + 전결표 + 핵심 별표) **인간검증 큐레이션**, 나머지 자동
 - **ADR-004** 인용 = 메타데이터 결정론 + 거절게이트, **ACL v1 = 전직원 19보드(헤더 신원)**
+- **ADR-005** GLM-5.2 는 **추론(reasoning) 모델** — 응답이 `content`+`reasoning_content` 로 분리. 추론이 `max_tokens` 를 잠식하면 `content=''`(finish=length)로 빈 답이 됨. **대응**: ① **리랭크(B/C)** = `app/search/glm_client.py` payload 에 `chat_template_kwargs:{enable_thinking:false}` + 넉넉한 `max_tokens`(512). `reasoning_effort:low`(역효과)·`thinking:{type:disabled}`(무시) 는 미작동 → 채택 금지. ② **답변생성(D)** = 운영 `librechat.yaml` endpoint 모델 설정에 동일 이슈 존재 → 넉넉한 `max_tokens`(또는 LiteLLM 모델 params 로 `enable_thinking:false`)로 **답변 잘림 방지**(운영 endpoint 영역 = D 코드범위 밖 → `deploy/SMOKE.md §4/§6`·`deploy/RENDER_CONVENTIONS.md §1.6` 에 운영자 지침). 엔드포인트는 LiteLLM 경유, 인증 `Authorization: Bearer`.
 
 ## 6. 품질기준 / 위험
 - **NFR**: 인용정확도 ≥98% · 기권 ≥95% · ACL/PII 무노출 =0건 · recall@10 ≥85% · 신선도 ≤24h

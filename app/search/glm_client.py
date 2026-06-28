@@ -68,7 +68,11 @@ class GlmClient:
         payload = {
             "model": self._model,
             "temperature": 0,
-            "max_tokens": 256,
+            "max_tokens": 512,  # 추론 토큰 잠식 대비 방어선(enable_thinking:false 가 1차 해법)
+            # GLM-5.2 는 추론모델 — 추론을 비활성화해야 content 에 인덱스 배열이 즉시 채워짐
+            # (reasoning_content 로 토큰이 새어 content='' 가 되지 않게). ADR-005 참조.
+            # reasoning_effort:low(역효과)/thinking:{type:disabled}(무시) 는 미작동 — 채택 금지.
+            "chat_template_kwargs": {"enable_thinking": False},
             "messages": [
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": f"질의: {query}\n\n후보:\n{numbered}"},

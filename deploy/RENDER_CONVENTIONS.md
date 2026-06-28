@@ -48,6 +48,13 @@
 - 재현성을 위해 GLM 은 temperature=0 전제(FEAT-007/INT-002). 단 이는 운영 librechat.yaml
   `endpoints` 설정 영역으로 **D 범위 밖**(plan §1.4) — 본 규약은 정합 요구만 기록.
 
+### 1.6 GLM-5.2 추론모델 — 답변 잘림 방지 (운영 endpoint 영역, D 범위 밖)
+- GLM-5.2 는 추론모델이라 `max_tokens` 부족 시 추론 토큰이 한도를 잠식해 `content=''`
+  (finish=length)로 빈 답이 날 수 있습니다(ADR-005). 운영 `librechat.yaml` endpoint(또는 LiteLLM
+  모델 params)에서 **넉넉한 `max_tokens`** 또는 **`chat_template_kwargs:{enable_thinking:false}`**
+  로 잘림을 방지하세요. 본 규약은 정합 요구만 기록하며, 위키 MCP 리랭크 경로는
+  `app/search/glm_client.py` 가 코드에서 처리합니다(운영자 조치 불요).
+
 ---
 
 ## 2. 첨부 링크/이미지 렌더 — FEAT-011
