@@ -22,7 +22,7 @@ from app.ingest.models import (
 
 pytestmark = pytest.mark.integration
 
-REG_BOARD_NO = 1401000286  # 사내규정
+REG_BOARD_NO = 900000286  # 사내규정
 
 
 @pytest.fixture

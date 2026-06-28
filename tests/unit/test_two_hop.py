@@ -1,41 +1,37 @@
-"""plan §5 — 2-hop iframe 본문 파싱.
+"""plan §5 — 2-hop 본문 파싱 (라이브 실측 구조).
 
-viewPost.do HTML → iframe ``bizboxLink.do?url=<urlenc>`` src 추출 → url 파라미터 URL-decode →
-실 EDMS 경로 → fetch_inner_content(2-hop) → 진짜 본문. URL 디코드와 2-hop 배선을 검증한다.
+viewPost.do HTML → 본문 iframe ``viewPostArtContent.do?boardNo=&artNo=`` 경로 추출 →
+fetch_inner_content(2-hop) → 진짜 본문. 메타(title/author/...)는 목록 ``PostRef`` 재사용.
 """
 
 from __future__ import annotations
 
-from urllib.parse import quote
+from datetime import UTC, datetime
 
 from app.ingest.crawler import crawl_post, extract_inner_url
+from app.ingest.models import PostRef
 
-# viewPost.do 응답에 박힌 iframe: bizboxLink.do?url=<urlencoded EDMS 경로>.
-_INNER_PATH = "/edms/board/innerView.do?boardNo=1401000286&artNo=1001"
-_VIEW_POST_HTML = f"""
+# viewPost.do 응답에 박힌 본문 iframe: viewPostArtContent.do (구 bizboxLink.do 폐기).
+_VIEW_POST_HTML = """
 <html><body>
   <div class="post-view">
-    <h2 class="post-title">출장비 규정</h2>
-    <span class="author">홍길동</span>
-    <span class="dept">총무팀</span>
-    <span class="date">2026-06-20</span>
-    <span class="views">123</span>
-    <iframe id="_content" src="bizboxLink.do?url={quote(_INNER_PATH, safe='')}"></iframe>
+    <iframe id="contentIframe"
+            src="viewPostArtContent.do?boardNo=900000286&artNo=1001"></iframe>
   </div>
 </body></html>
 """
 
 _INNER_HTML = """
-<html><body><div class="content">
+<html><head><style>p{font-size:12px;}</style></head><body><div class="contents">
   <p>제1조(목적) 이 규정은 출장비를 정한다.</p>
   <p>①국내출장은 실비로 한다.</p>
 </div></body></html>
 """
 
 
-def test_extract_inner_url_decodes_bizbox_link() -> None:
+def test_extract_inner_url_builds_art_content_path() -> None:
     inner = extract_inner_url(_VIEW_POST_HTML)
-    assert inner == _INNER_PATH
+    assert inner == "/edms/board/viewPostArtContent.do?boardNo=900000286&artNo=1001"
 
 
 def test_extract_inner_url_none_when_no_iframe() -> None:
@@ -54,8 +50,8 @@ class _StubClient:
     def fetch_post(self, board_no: int, art_no: int) -> str:
         return _VIEW_POST_HTML
 
-    def fetch_inner_content(self, bizbox_link_url: str) -> str:
-        self.inner_calls.append(bizbox_link_url)
+    def fetch_inner_content(self, inner_url: str) -> str:
+        self.inner_calls.append(inner_url)
         return _INNER_HTML
 
     def fetch_board_page(self, board_no, page, per_page):  # pragma: no cover
@@ -67,15 +63,30 @@ class _StubClient:
 
 def test_crawl_post_fetches_inner_content_via_second_hop() -> None:
     client = _StubClient()
-    raw = crawl_post(client, board_no=1401000286, art_no=1001)
+    ref = PostRef(
+        art_no=1001, title="출장비 규정", author="홍길동",
+        posted_at=datetime(2026, 6, 20, tzinfo=UTC), view_count=123, has_attachment=False,
+    )
+    raw = crawl_post(client, 900000286, ref)
 
-    # 2-hop: 디코드된 실경로로 fetch_inner_content 가 호출됐다.
-    assert client.inner_calls == [_INNER_PATH]
+    # 2-hop: viewPostArtContent 실경로로 fetch_inner_content 가 호출됐다.
+    assert client.inner_calls == ["/edms/board/viewPostArtContent.do?boardNo=900000286&artNo=1001"]
     # 본문은 1-hop viewPost 가 아니라 2-hop inner content.
     assert "제1조" in raw.body_html
-    # 메타는 1-hop viewPost 에서.
+    # 메타는 목록 ref 에서 재사용(viewPost HTML 재파싱 안 함).
     assert raw.title == "출장비 규정"
     assert raw.author_name == "홍길동"
-    assert raw.author_dept == "총무팀"
     assert raw.view_count == 123
     assert raw.posted_at is not None and raw.posted_at.year == 2026
+    assert raw.source_url == "/edms/board/viewPost.do?boardNo=900000286&artNo=1001"
+
+
+def test_crawl_post_inline_body_when_no_iframe() -> None:
+    """본문 iframe 이 없으면 viewPost HTML 자체를 본문으로 사용(폴백)."""
+    class _Inline(_StubClient):
+        def fetch_post(self, board_no, art_no):
+            return "<html><body><div class='contents'>인라인 규정 본문</div></body></html>"
+
+    ref = PostRef(art_no=1001, title="T", author=None, posted_at=None)
+    raw = crawl_post(_Inline(), 900000286, ref)
+    assert "인라인 규정 본문" in raw.body_html

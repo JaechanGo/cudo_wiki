@@ -14,7 +14,7 @@ from app.ingest.models import ParsedAuthority, ParsedClause, ParsedRegulation, R
 
 pytestmark = pytest.mark.integration
 
-REG_BOARD_NO = 1401000286
+REG_BOARD_NO = 900000286
 
 
 @pytest.fixture

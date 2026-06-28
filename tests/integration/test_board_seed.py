@@ -12,7 +12,7 @@ import pytest
 from app.ingest.board_seed import BOARDS
 
 # 제외 보드(개인정보 4개, DESIGN §7).
-EXCLUDED_BOARD_NOS = {1401000141, 501000075, 1401000440, 1401000711}
+EXCLUDED_BOARD_NOS = {900000141, 75, 900000440, 900000711}
 
 
 def test_nineteen_boards_no_excluded() -> None:
@@ -26,8 +26,8 @@ def test_nineteen_boards_no_excluded() -> None:
 
 
 def test_regulation_board_present() -> None:
-    """사내규정(1401000286)=regulation·article·mecab 병렬."""
-    reg = next(b for b in BOARDS if b.bizbox_board_no == 1401000286)
+    """사내규정(900000286)=regulation·article·mecab 병렬."""
+    reg = next(b for b in BOARDS if b.bizbox_board_no == 900000286)
     assert reg.board_class == "regulation"
     assert reg.default_chunk_strategy == "article"
     assert reg.use_mecab_parallel is True

@@ -14,8 +14,8 @@ from app.ingest.health import detect_stalled, update_heartbeat
 
 pytestmark = pytest.mark.integration
 
-NOTICE_BOARD_NO = 501000074
-REG_BOARD_NO = 1401000286
+NOTICE_BOARD_NO = 74
+REG_BOARD_NO = 900000286
 
 
 @pytest.fixture

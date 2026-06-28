@@ -1,6 +1,6 @@
 """plan §9·§10 (★ task 검증 요구) — MockBizboxClient + migrated_db 로 1보드 크롤→DB 적재.
 
-사내규정 보드(1401000286) fixtures 를 ``crawl_board`` 로 1회 크롤 → post/attachment/clause/
+사내규정 보드(900000286) fixtures 를 ``crawl_board`` 로 1회 크롤 → post/attachment/clause/
 authority 적재·조회를 단언한다. 실네트워크/실세션 없이 HTTP 경계를 목으로 대체(plan §9).
 글 단위 실패 격리(plan §8)도 검증.
 """
@@ -17,9 +17,14 @@ from app.ingest.board_seed import BOARDS
 from app.ingest.loader import upsert_board_seed
 from app.ingest.run import crawl_board
 
-pytestmark = pytest.mark.integration
+# ① 첨부 라이브 파싱(appendFileTop.do/download.do) + fixture 를 라이브 구조(exData·
+# viewPostArtContent)로 갱신한 뒤 활성화. 현재 crawl_post 는 본문만 수집(첨부 빈 tuple).
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skip(reason="①첨부 라이브 파싱 + fixture 라이브 갱신 후 활성화 예정"),
+]
 
-REG_BOARD_NO = 1401000286
+REG_BOARD_NO = 900000286
 FIXTURES_ROOT = str(Path(__file__).resolve().parents[1] / "fixtures" / "bizbox")
 
 

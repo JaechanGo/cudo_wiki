@@ -14,7 +14,7 @@ from app.ingest.models import IngestCounts, RawAttachment, RawPost
 
 pytestmark = pytest.mark.integration
 
-NOTICE_BOARD_NO = 501000074  # 공지사항
+NOTICE_BOARD_NO = 74  # 공지사항
 
 
 @pytest.fixture
