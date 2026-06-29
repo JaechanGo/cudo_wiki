@@ -65,16 +65,18 @@ async def search(
         )
 
     clause_ref = extract_clause_ref(normalized)
-    sql, params = build_search_sql(
-        normalized,
-        clause_ref=clause_ref,
-        board_ids=board_ids,
-        only_current=only_current,
-        as_of=as_of,
-        limit=limit,
-        use_synonym_expand=use_synonym_expand,
-        recency_w=recency_w,
-    )
+
+    def _sql(match_query: str):
+        return build_search_sql(
+            match_query,
+            clause_ref=clause_ref,
+            board_ids=board_ids,
+            only_current=only_current,
+            as_of=as_of,
+            limit=limit,
+            use_synonym_expand=use_synonym_expand,
+            recency_w=recency_w,
+        )
 
     async with conn.cursor(row_factory=dict_row) as cur:
         if use_synonym_expand:
@@ -87,13 +89,29 @@ async def search(
         else:
             expanded_query = normalized
 
+        # 1차: PGroonga &@~ 는 공백을 AND 로 본다(정밀). 모든 토큰을 포함한 chunk 만 매칭.
+        sql, params = _sql(normalized)
         await cur.execute(sql, params)
         rows = await cur.fetchall()
+
+        # OR 폴백: 다토큰 질의가 0건이면 토큰 OR 로 재검색해 recall 확보
+        # (예: "개인경비 마감 날짜" → '날짜' 토큰이 데이터에 없어 AND 0건 → OR 로 '개인경비/마감' 매칭).
+        # AND 결과가 있으면 폴백 안 함 → 기존 정밀도·동작 보존. 조항 직격(exact)은 제외.
+        # 정밀도 하락은 후단 GLM 리랭크 + 거절 게이트가 흡수.
+        or_fallback = False
+        tokens = normalized.split()
+        if not rows and clause_ref is None and len(tokens) > 1:
+            sql, params = _sql(" OR ".join(tokens))
+            await cur.execute(sql, params)
+            rows = await cur.fetchall()
+            or_fallback = bool(rows)
 
     hits = [_row_to_hit(r) for r in rows]
     is_exact = any(r.get("match_kind") == "exact" for r in rows)
     if is_exact:
         strategy = "exact_clause"
+    elif or_fallback:
+        strategy = "or_fallback"
     elif use_synonym_expand:
         strategy = "synonym_expanded"
     else:
