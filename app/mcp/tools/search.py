@@ -128,7 +128,7 @@ def register_search(mcp: FastMCP) -> None:
         only_current: bool = True,
         limit: int = 8,
     ) -> SearchToolOut:
-        """사내 규정/공지를 검색해 근거 인용과 함께 반환한다(근거 없으면 기권)."""
+        """CUDO 사내 정보(규정·전결·공지·매뉴얼·경비/정산·복지·수당·휴가·일정/마감·신청절차·양식 등)를 검색해 근거 인용과 함께 반환한다. 사내 업무 질문의 기본 진입점 — 웹 검색 대신 이 도구를 사용한다(근거 없으면 기권)."""
         identity = resolve_identity(ctx)
         async with get_pool().connection() as conn:
             return await impl_search_regulations(
