@@ -11,8 +11,10 @@ from __future__ import annotations
 
 from datetime import date
 
-# recency 감쇠 반감기(일). recency_w=0.0(기본)이면 score=raw_score (R0 보수, D-04).
-HALF_LIFE_DAYS: float = 365.0
+# recency 감쇠 반감기(일). 작을수록 최근 글에 가파른 우대. 마감공지처럼 매월 반복되어
+# 렉시컬 raw 가 동률인 시계열 공지에서 최신판이 상단으로 오도록 90일로 단축(was 365).
+# recency_w=0.0 이면 score=raw_score(가중 비활성).
+HALF_LIFE_DAYS: float = 90.0
 
 # SearchHit 매핑 대상 컬럼(am.canonical_authority_id 비정규화 포함). 두 경로 컬럼 정합 유지.
 _HIT_COLS = (

@@ -94,17 +94,21 @@ async def search(
         await cur.execute(sql, params)
         rows = await cur.fetchall()
 
-        # OR 폴백: 다토큰 질의가 0건이면 토큰 OR 로 재검색해 recall 확보
-        # (예: "개인경비 마감 날짜" → '날짜' 토큰이 데이터에 없어 AND 0건 → OR 로 '개인경비/마감' 매칭).
-        # AND 결과가 있으면 폴백 안 함 → 기존 정밀도·동작 보존. 조항 직격(exact)은 제외.
-        # 정밀도 하락은 후단 GLM 리랭크 + 거절 게이트가 흡수.
+        # OR 폴백: 다토큰 질의의 AND 결과가 빈약하면(< MIN_AND_HITS) 토큰 OR 로 재검색해 recall 확보.
+        # OR 은 AND 의 superset 이므로 기존 매칭을 잃지 않고, recency 가중이 최신을 상단으로 끌어올린다
+        # (예: "6월 개인경비 마감일" → '마감일' 토큰이 최신 마감공지 본문엔 없어 AND 3건[옛글]뿐 →
+        #  OR 로 '6월/개인경비/마감일' 매칭 → 최신 마감공지 포함). AND 가 충분하면 폴백 안 함(정밀 보존).
+        # 정밀도 하락은 후단 GLM 리랭크 + 거절 게이트가 흡수. 조항 직격(exact)은 제외.
+        MIN_AND_HITS = 5
         or_fallback = False
         tokens = normalized.split()
-        if not rows and clause_ref is None and len(tokens) > 1:
+        if len(rows) < MIN_AND_HITS and clause_ref is None and len(tokens) > 1:
             sql, params = _sql(" OR ".join(tokens))
             await cur.execute(sql, params)
-            rows = await cur.fetchall()
-            or_fallback = bool(rows)
+            or_rows = await cur.fetchall()
+            if len(or_rows) > len(rows):  # OR 이 더 많이 회수했을 때만 교체.
+                rows = or_rows
+                or_fallback = True
 
     hits = [_row_to_hit(r) for r in rows]
     is_exact = any(r.get("match_kind") == "exact" for r in rows)

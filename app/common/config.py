@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     # ── LLM gateway (GLM-5.2 via 사내 LiteLLM) ────────────────
     litellm_base: str = "http://litellm:4000/v1"
     litellm_key_glm: str = ""
+    # 검색 내부 LLM 작업(리랭크·질의이해)용 경량 모델. GLM-5.2 는 추론모델이라 후보 재정렬·
+    # 질의확장 같은 가벼운 작업엔 과하다(지연·비용) → qwen3-coder-next 경량 사용. GLM-5.2 는
+    # 최종 답변생성(LibreChat)에만. 실측: qwen 리랭크가 GLM 과 동일 정확도. .env(RERANK_MODEL)로 조정.
+    rerank_model: str = "qwen3-coder-next"
 
     # ── OCR shim ──────────────────────────────────────────────
     ocr_base: str = "http://ocr-shim:8900"
@@ -49,10 +53,11 @@ class Settings(BaseSettings):
 
     # ── 검색 랭킹 ─────────────────────────────────────────────
     # 최신순 가중(recency_w): score = raw_score * (1 + recency_w * recency_factor),
-    # recency_factor = 1/(1 + age_days/half_life)(반감기 365일). 0.0=비활성(순수 어휘).
-    # 사내 정보는 현행(is_current) 안에서도 최신 글을 우선 노출해야 하므로 기본 활성(0.3).
-    # 평가 골든셋 영향 시 .env(SEARCH_RECENCY_W)로 조정.
-    search_recency_w: float = 0.3
+    # recency_factor = 1/(1 + age_days/half_life)(반감기 90일, query_builder.HALF_LIFE_DAYS).
+    # 0.0=비활성(순수 어휘). 마감공지처럼 매월 반복되는 글은 렉시컬 raw 가 거의 동률이라
+    # 사용자는 항상 '최신'을 원하므로, raw 소폭 차를 뒤집을 만큼 강하게(0.8) 둔다.
+    # (시뮬: w=0.8·half=90 에서 2026-06 마감공지가 2025-12 글을 역전). .env(SEARCH_RECENCY_W)로 조정.
+    search_recency_w: float = 0.8
 
     def _userinfo(self) -> str:
         """``user:password`` (특수문자 URL 인코딩). 빈 비번도 안전(``user:``)."""

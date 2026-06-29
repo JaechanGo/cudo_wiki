@@ -11,6 +11,7 @@ from collections.abc import Callable
 
 import httpx
 
+from app.common.config import get_settings
 from app.common.logging import get_logger
 from app.search import redaction
 from app.search.glm_client import GlmClient, RerankClient
@@ -62,10 +63,19 @@ async def rerank(
         return RerankResult(hits=[], reranked=False, fallback_reason=None)
 
     redact = redactor or redaction.redact
-    candidates = [redact(h.body) for h in hits]
+
+    def _candidate(h: SearchHit) -> str:
+        # 게시월 prepend → 리랭커가 관련도 동등 시 최신을 우선하도록(recency 신호 전달).
+        body = redact(h.body)
+        if h.posted_at is not None:
+            return f"[{h.posted_at.strftime('%Y-%m')}] {body}"
+        return body
+
+    candidates = [_candidate(h) for h in hits]
 
     if client is None:
-        client = GlmClient(timeout_s=timeout_s)
+        # 경량 모델(qwen3-coder-next)로 리랭크 — GLM-5.2 추론모델은 후보 재정렬엔 과함.
+        client = GlmClient(model=get_settings().rerank_model, timeout_s=timeout_s)
 
     try:
         order = await client.rank(query, candidates)
