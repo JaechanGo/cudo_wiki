@@ -127,6 +127,17 @@ class HttpBizboxClient:
         암호화·필드분할은 로그인 페이지 ``actionLogin()`` JS 와 동일. 자격은 .env.
         """
         client = self._ensure_client()
+
+        # ★ 세션 쿠키 재사용 모드(anti-bot 차단 우회): JSESSIONID 가 주입되면 자동 로그인 3단계를
+        #   건너뛰고 브라우저가 이미 통과한 세션을 그대로 사용. 세션 만료 시 크롤이 로그인 페이지로
+        #   리다이렉트됨(그땐 재발급 필요). 평상시엔 빈 값 → 자동 로그인.
+        sid = (self._settings.bizbox_jsessionid or "").strip()
+        if sid:
+            host = urlsplit(self._base).hostname or "gw.cudo.co.kr"
+            client.cookies.set("JSESSIONID", sid, domain=host, path="/")
+            self._logged_in = True
+            return
+
         user = self._settings.bizbox_user
         password = self._settings.bizbox_password
         if not user or not password:

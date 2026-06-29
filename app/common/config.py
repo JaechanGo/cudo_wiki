@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     bizbox_base: str = "http://gw.cudo.co.kr"
     bizbox_user: str = ""
     bizbox_password: str = ""
+    # 브라우저 세션 쿠키 재사용(anti-bot 차단 우회용 임시 수단). 설정 시 login() 의 자동 로그인
+    # 3단계를 건너뛰고 이 JSESSIONID 를 세션 쿠키로 주입. 세션 만료 시 무효 → 평상시 비움.
+    bizbox_jsessionid: str = ""
 
     # ── MCP server ────────────────────────────────────────────
     mcp_port: int = 8080
