@@ -38,6 +38,7 @@ async def impl_list_recent_posts(
         "SELECT p.post_id, p.title, p.posted_at, p.source_url, b.name AS board_name "
         "FROM post p JOIN board b ON b.board_id = p.board_id "
         "WHERE p.board_id = ANY(%(allowed)s) AND b.included "
+        "AND b.board_class <> 'video' "  # 영상은 최신 글 목록서 제외(recommend_videos 전용).
     )
     params: dict = {"allowed": grant.allowed_boards, "limit": limit}
     if board:

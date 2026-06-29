@@ -174,7 +174,7 @@ class ParsedAuthority:
 
 @dataclass(frozen=True, slots=True)
 class BoardSeed:
-    """19보드 마스터 시드 1건(loader.upsert_board_seed 입력). board 테이블 매핑."""
+    """보드 마스터 시드 1건(loader.upsert_board_seed 입력). board 테이블 매핑."""
 
     bizbox_board_no: int
     name: str
@@ -184,6 +184,9 @@ class BoardSeed:
     included: bool = True
     use_mecab_parallel: bool = False
     required_role: str | None = None
+    # 크롤 소스 디스크리미네이터 — run.main 이 source 별로 (client, list_fn, crawl_fn) 분기.
+    # 'bizbox'(기본)=BizBox 그룹웨어, 'gainge'=지식뱅크(cudo.gainge.com) GraphQL 영상.
+    source: str = "bizbox"
 
 
 @dataclass(frozen=True, slots=True)

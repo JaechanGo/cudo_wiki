@@ -32,6 +32,7 @@ async def impl_list_boards(
     sql = (
         "SELECT board_id, name, slug, board_class FROM board "
         "WHERE included AND board_id = ANY(%(allowed)s) "
+        "AND board_class <> 'video' "  # 영상 보드는 규정 카탈로그서 제외(recommend_videos 전용).
     )
     params: dict = {"allowed": grant.allowed_boards, "bc": board_class}
     if board_class is not None:

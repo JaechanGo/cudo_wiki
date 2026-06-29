@@ -46,4 +46,11 @@ BOARDS: tuple[BoardSeed, ...] = (
     BoardSeed(900000669, "자격증 축하금 LIST", "cert-reward-list", "etc", "table"),          # jstree=1401000669
     BoardSeed(900000679, "버크만진단 참고자료", "birkman-reference", "etc", "whole"),          # jstree=1401000679
     BoardSeed(900000704, "임직원 교육·설문결과", "staff-training-survey", "etc", "whole"),      # jstree=1401000704
+    # ── gainge 지식뱅크(영상) — BizBox 아닌 별도 소스(GraphQL). 단일 보드로 전 카테고리 수집.
+    #    bizbox_board_no=800000000 은 BizBox 미사용 sentinel([1,999999]·[900000000,900999999] 밖).
+    #    board_class='video'(0005 enum)로 규정/일반 검색과 분리, recommend_videos 전용.
+    BoardSeed(
+        800000000, "지식뱅크 영상", "gainge-video", "video", "whole",
+        source="gainge",
+    ),
 )

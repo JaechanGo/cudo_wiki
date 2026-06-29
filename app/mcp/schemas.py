@@ -156,6 +156,24 @@ class RecentPostsOut(BaseModel):
     message_ko: str | None = None
 
 
+class VideoItem(BaseModel):
+    """추천 영상 1건 (지식뱅크 gainge)."""
+
+    title: str
+    board_name: str
+    video_url: str | None = None
+    snippet: str | None = None
+    score: float = 0.0
+    posted_at: date | None = None
+
+
+class VideoRecOut(BaseModel):
+    """recommend_videos 출력 — 질의 관련 영상 top-N(관련도순, abstain 없음)."""
+
+    videos: list[VideoItem] = []
+    message_ko: str | None = None
+
+
 # ── get_approval_authority(§3.5, M-2) ────────────────────────────────────
 
 

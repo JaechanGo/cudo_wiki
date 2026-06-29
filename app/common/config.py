@@ -52,6 +52,14 @@ class Settings(BaseSettings):
     # 동작한다. 예: https://open-llm.cudo.co.kr:9977/bizbox-dl. 비우면 http 직접(폴백, 클릭 차단됨).
     attachment_proxy_base: str = ""
 
+    # ── gainge 지식뱅크(영상) 크롤 ────────────────────────────
+    # cudo.gainge.com GraphQL(POST /api/graphql, 순수 쿠키세션). bizbox_jsessionid 와 동일하게
+    # 브라우저 세션 쿠키 재사용(anti-bot 우회 임시수단). gainge_session_cookie 가 비어있지 않을 때만
+    # GaingeClient 가 생성되고 source='gainge' 보드를 크롤한다(빈값=영상 크롤 스킵). 세션 만료 시 무효.
+    # 값 = 브라우저 Cookie 헤더 문자열 전체(쿠키명 미상이므로 헤더째 주입). 절대 커밋 금지(.env).
+    gainge_base: str = "https://cudo.gainge.com"
+    gainge_session_cookie: str = ""
+
     # ── MCP server ────────────────────────────────────────────
     mcp_port: int = 8080
     log_level: str = "INFO"

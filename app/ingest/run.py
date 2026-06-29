@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import sys
+from collections.abc import Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -149,12 +150,14 @@ def process_post(
     board_class: str,
     ref: PostRef,
     ocr_client: OcrClient | None = None,
+    crawl_fn: Callable[..., RawPost] = crawl_post,
 ) -> IngestCounts:
     """글 1건: 크롤→정제→추출→적재(규정이면 clause/authority). 호출부가 트랜잭션을 잡는다.
 
-    메타(title/author/posted_at/view_count)는 목록 ``ref`` 에 완비 → crawl_post 가 재사용.
+    메타(title/author/posted_at/view_count)는 목록 ``ref`` 에 완비 → crawl_fn 가 재사용.
+    crawl_fn: 소스별 크롤러(기본 bizbox crawl_post; gainge 는 gainge_crawler.crawl_post 주입).
     """
-    raw = crawl_post(client, board_no, ref)
+    raw = crawl_fn(client, board_no, ref)
     body_text = clean_html(raw.body_html, None)
 
     atts, results = _download_and_extract(client, raw, ocr_client)
@@ -203,8 +206,13 @@ def crawl_board(
     board_class: str,
     full: bool = False,
     ocr_client: OcrClient | None = None,
+    list_fn: Callable[..., list[PostRef]] = list_post_refs,
+    crawl_fn: Callable[..., RawPost] = crawl_post,
 ) -> IngestCounts:
-    """보드 1개 증분 크롤. 글마다 1트랜잭션(실패 격리) → 워터마크 전진 + heartbeat."""
+    """보드 1개 증분 크롤. 글마다 1트랜잭션(실패 격리) → 워터마크 전진 + heartbeat.
+
+    list_fn/crawl_fn: 소스별 크롤러(기본 bizbox; gainge 는 gainge_crawler 함수 주입).
+    """
     with conn.transaction():
         update_heartbeat(conn, board_id, status="running", health="healthy")
         wm = conn.execute(
@@ -214,7 +222,7 @@ def crawl_board(
     since_art = None if full else (wm[0] if wm else None)
     since_dt = None if full else (wm[1] if wm else None)
 
-    refs = list_post_refs(client, board_no, since_art, since_dt)
+    refs = list_fn(client, board_no, since_art, since_dt)
 
     posts = atts = clauses = auths = failures = 0
     errors: list[str] = []
@@ -226,6 +234,7 @@ def crawl_board(
                 c = process_post(
                     conn, client, board_id=board_id, board_no=board_no,
                     board_class=board_class, ref=ref, ocr_client=ocr_client,
+                    crawl_fn=crawl_fn,
                 )
             posts += c.posts
             atts += c.attachments
@@ -255,16 +264,31 @@ def crawl_board(
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 
-def _build_clients() -> tuple[BizboxClient, OcrClient]:
-    """실세션 클라이언트(BizBox httpx + OCR). CLI 실행 경로 전용(import 시 생성 안 함)."""
+def _build_clients(
+    targets: list,
+) -> tuple[BizboxClient | None, object | None, OcrClient]:
+    """소스별 실세션 클라이언트 — targets 에 등장하는 source 만 생성/로그인.
+
+    bizbox 보드가 있으면 HttpBizboxClient(+login), gainge 보드가 있으면 GaingeClient(+login).
+    OCR 은 bizbox 첨부 추출용(gainge 영상은 첨부 없음→미사용)이라 항상 생성.
+    """
     from app.common.config import get_settings
-    from app.ingest.bizbox_client import HttpBizboxClient
     from app.ingest.extract.ocr import OcrClient
 
     settings = get_settings()
-    client = HttpBizboxClient(settings)
-    client.login()
-    return client, OcrClient(base_url=settings.ocr_base)
+    bizbox: BizboxClient | None = None
+    gainge: object | None = None
+    if any(s.source == "bizbox" for s in targets):
+        from app.ingest.bizbox_client import HttpBizboxClient
+
+        bizbox = HttpBizboxClient(settings)
+        bizbox.login()
+    if any(s.source == "gainge" for s in targets):
+        from app.ingest.gainge_client import GaingeClient
+
+        gainge = GaingeClient(settings)
+        gainge.login()
+    return bizbox, gainge, OcrClient(base_url=settings.ocr_base)
 
 
 def _run_health_check() -> int:
@@ -307,12 +331,18 @@ def main(argv: list[str] | None = None) -> int:
     targets = list(BOARDS) if args.all else [_SEED_BY_NO[args.board]]
 
     from app.ingest.db import batch_connection
+    from app.ingest.gainge_crawler import crawl_post as gainge_crawl
+    from app.ingest.gainge_crawler import list_post_refs as gainge_list
 
-    client, ocr_client = _build_clients()
+    bizbox_client, gainge_client, ocr_client = _build_clients(targets)
     with batch_connection() as conn:
         board_map = upsert_board_seed(conn, BOARDS)
         conn.commit()
         for seed in targets:
+            if seed.source == "gainge":
+                client, list_fn, crawl_fn = gainge_client, gainge_list, gainge_crawl
+            else:
+                client, list_fn, crawl_fn = bizbox_client, list_post_refs, crawl_post
             counts = crawl_board(
                 conn, client,
                 board_no=seed.bizbox_board_no,
@@ -320,6 +350,8 @@ def main(argv: list[str] | None = None) -> int:
                 board_class=seed.board_class,
                 full=args.full,
                 ocr_client=ocr_client,
+                list_fn=list_fn,
+                crawl_fn=crawl_fn,
             )
             print(
                 f"[{seed.bizbox_board_no} {seed.name}] posts={counts.posts} "

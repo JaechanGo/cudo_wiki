@@ -20,6 +20,19 @@ async def allowed_board_ids(conn, identity: Identity) -> list[int]:
     return [r[0] for r in rows]
 
 
+async def video_board_ids(conn) -> list[int]:
+    """board_class='video' 보드 id 목록 — 영상 전용 분리 축.
+
+    included 는 all-or-nothing 게이트라 '한 도구에만 노출'을 못 한다. 영상 보드는 included=true 로
+    두되(recommend_videos 의 gate 통과 위해), 규정/일반 검색·목록·카탈로그(search_regulations·
+    list_recent_posts·list_boards)에서는 이 id 들을 명시적으로 제외해 영상이 새어들지 않게 한다.
+    """
+    async with conn.cursor() as cur:
+        await cur.execute("SELECT board_id FROM board WHERE board_class = 'video'")
+        rows = await cur.fetchall()
+    return [r[0] for r in rows]
+
+
 def filter_board_ids(
     requested: list[int] | None, allowed: list[int]
 ) -> tuple[list[int], list[int]]:

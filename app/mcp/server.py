@@ -25,9 +25,9 @@ configure_logging(_settings.log_level)
 _log = get_logger("app.mcp.server")
 
 _INSTRUCTIONS = (
-    "CUDO 사내 위키 MCP — 사내 규정·전결·공지·매뉴얼·회사문서 검색/인용. 도구 8종"
+    "CUDO 사내 위키 MCP — 사내 규정·전결·공지·매뉴얼·회사문서 검색/인용 + 지식뱅크 영상추천. 도구 9종"
     "(search_regulations·get_regulation·get_attachment·list_boards·list_recent_posts·"
-    "get_approval_authority·aggregate_compare·get_regulation_diff). 핵심 규칙:\n"
+    "recommend_videos·get_approval_authority·aggregate_compare·get_regulation_diff). 핵심 규칙:\n"
     "① 라우팅: 사내 업무·제도 질문(규정·전결·결재·경비/정산·복지·수당·휴가·마감/일정·"
     "신청/양식·공지, 그리고 사업자등록증·법인등기 등 회사가 사내에 게시한 문서 포함)은 "
     "키워드에 '규정'이 없어도 반드시 search_regulations 로 먼저 검색하라. 웹 검색을 쓰지 말고"
@@ -38,7 +38,10 @@ _INSTRUCTIONS = (
     "재사용하지 마라(과거 판본 오답 방지). 과거 자료는 '과거/개정 전'으로 분리해 표기하라. "
     "'최신/최근 공지(글)를 보여줘'처럼 키워드가 아니라 **시간순 목록**이 의도인 요청은 "
     "search_regulations 가 아니라 **list_recent_posts**(board 로 게시판명 필터) 를 써라 — "
-    "렉시컬 검색은 '공지/최신' 토큰이 많은 옛 글을 위로 올린다.\n"
+    "렉시컬 검색은 '공지/최신' 토큰이 많은 옛 글을 위로 올린다. "
+    "동영상·강의·교육영상 추천을 원하는 요청(예 'OOO 관련 영상 추천', '강의 찾아줘')은 "
+    "search_regulations 가 아니라 **recommend_videos** 를 써라(규정·문서 검색엔 영상이 섞이지 않는다). "
+    "추천 영상은 각 video_url(재생 링크)을 **[제목](video_url)** 마크다운으로 제시하라.\n"
     "③ 출처·첨부 링크: 검색 출처(source)나 get_attachment 응답에 첨부 download_url 이 있으면, "
     "**각 첨부를 반드시 `[파일명](download_url)` 마크다운 링크로 제시**하라 — 응답 메타의 "
     "download_url 값을 **그대로** 쓰고 링크를 **비우거나 생략하지 마라**(축약·변형·생성도 금지). "

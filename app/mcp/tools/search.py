@@ -14,6 +14,7 @@ from mcp.server.fastmcp import Context, FastMCP
 
 from app.common.db import get_pool
 from app.mcp import audit
+from app.mcp.acl import video_board_ids
 from app.mcp.citations import verify_citations_against_hits
 from app.mcp.context import Identity, resolve_identity
 from app.mcp.redact_ext import redact_pii
@@ -62,8 +63,13 @@ async def impl_search_regulations(
     if grant is None:
         return SearchToolOut(abstained=True, message_ko=ABSENT_MESSAGE_KO)
 
+    # 영상 보드 제외 — 규정/일반 검색에 지식뱅크 영상이 섞이지 않게(recommend_videos 전용).
+    # board_ids=None(허용 전체)일 때도 effective_boards 는 allowed 전체 list 라 영상이 새어든다.
+    video_ids = set(await video_board_ids(conn))
+    effective = [b for b in grant.effective_boards if b not in video_ids]
+
     sr = await search(
-        conn, query, board_ids=grant.effective_boards,
+        conn, query, board_ids=effective,
         only_current=only_current, as_of=as_of, limit=limit,
     )
     rr = await rerank(query, sr.hits, client=None)
