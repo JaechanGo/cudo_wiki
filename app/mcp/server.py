@@ -25,8 +25,8 @@ configure_logging(_settings.log_level)
 _log = get_logger("app.mcp.server")
 
 _INSTRUCTIONS = (
-    "CUDO 사내 위키 MCP — 사내 규정·전결·공지·매뉴얼·회사문서 검색/인용. 도구 7종"
-    "(search_regulations·get_regulation·get_attachment·list_boards·"
+    "CUDO 사내 위키 MCP — 사내 규정·전결·공지·매뉴얼·회사문서 검색/인용. 도구 8종"
+    "(search_regulations·get_regulation·get_attachment·list_boards·list_recent_posts·"
     "get_approval_authority·aggregate_compare·get_regulation_diff). 핵심 규칙:\n"
     "① 라우팅: 사내 업무·제도 질문(규정·전결·결재·경비/정산·복지·수당·휴가·마감/일정·"
     "신청/양식·공지, 그리고 사업자등록증·법인등기 등 회사가 사내에 게시한 문서 포함)은 "
@@ -35,7 +35,10 @@ _INSTRUCTIONS = (
     "근거를 못 찾으면 사내 출처가 없음을 알리고 기권하라.\n"
     "② 최신성: 항상 현행(최신)을 답하라. 검색 결과는 최신순 정렬이므로 **최상단(첫 번째) 항목이 "
     "현행**이다. 특정 문서를 요청받으면 매번 새로 검색하고, 직전 턴의 결과·attachment_id 를 "
-    "재사용하지 마라(과거 판본 오답 방지). 과거 자료는 '과거/개정 전'으로 분리해 표기하라.\n"
+    "재사용하지 마라(과거 판본 오답 방지). 과거 자료는 '과거/개정 전'으로 분리해 표기하라. "
+    "'최신/최근 공지(글)를 보여줘'처럼 키워드가 아니라 **시간순 목록**이 의도인 요청은 "
+    "search_regulations 가 아니라 **list_recent_posts**(board 로 게시판명 필터) 를 써라 — "
+    "렉시컬 검색은 '공지/최신' 토큰이 많은 옛 글을 위로 올린다.\n"
     "③ 출처·인용: 출처와 첨부는 메타데이터의 **`[제목/파일명](download_url)` 마크다운 링크**로만 "
     "제시하라(download_url 은 이미 절대 URL — 변형·생성 금지, 조번호 임의생성 금지). "
     "`turn0…` 같은 자리표시 인용 토큰은 만들지 마라(raw 로 노출됨).\n"

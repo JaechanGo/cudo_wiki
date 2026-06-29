@@ -139,6 +139,23 @@ class ListBoardsOut(BaseModel):
     message_ko: str | None = None
 
 
+class RecentPostItem(BaseModel):
+    """최근 글 1건 (시간순 목록용)."""
+
+    post_id: int
+    title: str
+    board_name: str
+    posted_at: date | None = None
+    source_url: str | None = None
+
+
+class RecentPostsOut(BaseModel):
+    """list_recent_posts 출력 — 게시판 최신 글 게시일 내림차순."""
+
+    posts: list[RecentPostItem] = []
+    message_ko: str | None = None
+
+
 # ── get_approval_authority(§3.5, M-2) ────────────────────────────────────
 
 
