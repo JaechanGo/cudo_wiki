@@ -54,6 +54,19 @@ def test_attachments_sorted_by_id():
     assert meta.attachments[1].download_url is None  # 빈 값은 그대로
 
 
+def test_source_url_made_absolute():
+    # 상대 source_url(/edms/...)은 절대 URL로 변환 — LibreChat 호스트로 잘못 붙는 것 방지.
+    meta = assemble_source_meta(
+        board_id=1, board_name="b", post_id=1, title="t",
+        reg_code=None, effective_date=None,
+        source_url="/edms/board/viewPost.do?boardNo=74&artNo=1159",
+        attachment_rows=[],
+    )
+    assert meta.source_url == (
+        "http://gw.cudo.co.kr/edms/board/viewPost.do?boardNo=74&artNo=1159"
+    )
+
+
 def test_deterministic_same_input_same_output():
     rows = [{"attachment_id": 5, "file_name": "x", "kind": "pdf", "download_url": "u"}]
     kwargs = dict(

@@ -46,7 +46,7 @@ def assemble_source_meta(
         title=title,
         reg_code=reg_code,
         effective_date=effective_date,
-        source_url=source_url,
+        source_url=absolute_bizbox_url(source_url),
         attachments=attachments,
     )
 
