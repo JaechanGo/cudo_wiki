@@ -107,3 +107,22 @@ def test_category_skips_unused():
     client = FakeGaingeClient(cats, {1: [_post(10)], 2: [_post(20)]})
     refs = list_post_refs(client, 800000000, None, None)
     assert [r.art_no for r in refs] == [10]  # is_using=False 카테고리(2)는 미수집.
+
+
+def test_posts_forbidden_category_isolated():
+    # 일부 카테고리가 403(FORBIDDEN→RuntimeError)이어도 접근 가능한 카테고리는 정상 수집(보드 미중단).
+    cats = [{"name": "g", "categories": [
+        {"seq": 1, "name": "a", "is_using": True},
+        {"seq": 2, "name": "b", "is_using": True},
+    ]}]
+    client = FakeGaingeClient(cats, {1: [_post(10)], 2: [_post(20)]})
+    orig = client.graphql
+
+    def gql(op, query, variables=None):
+        if op == "Posts" and variables["input"]["categorySeq"] == 2:
+            raise RuntimeError("gainge GraphQL 오류(Posts): FORBIDDEN 403")
+        return orig(op, query, variables)
+
+    client.graphql = gql
+    refs = list_post_refs(client, 800000000, None, None)
+    assert [r.art_no for r in refs] == [10]  # 카테고리 2(403)는 격리, 1만 수집.
