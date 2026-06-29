@@ -127,7 +127,16 @@ def _download_and_extract(
             att, content=content, sha256=sha, byte_size=len(content) if content else att.byte_size
         )
         atts.append(att2)
-        results.append(extract_attachment(att2, ocr_client=ocr_client) if content else None)
+        # ★ 추출 실패(OCR 미가용·HWP/PDF 파싱오류 등)는 **첨부 단위 격리** — 글 본문·다른 첨부는
+        #   적재한다. 미격리 시 첨부 추출 예외가 process_post 전체를 실패시켜 글이 통째 누락된다
+        #   (맥북 ocr-shim 부재 → OCR 첨부 글 147건 누락 원인. 예: '2026 6월 마감공지' 첨부 7개).
+        result: ExtractResult | None = None
+        if content:
+            try:
+                result = extract_attachment(att2, ocr_client=ocr_client)
+            except Exception:
+                result = None
+        results.append(result)
     return tuple(atts), results
 
 
