@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     # 브라우저 세션 쿠키 재사용(anti-bot 차단 우회용 임시 수단). 설정 시 login() 의 자동 로그인
     # 3단계를 건너뛰고 이 JSESSIONID 를 세션 쿠키로 주입. 세션 만료 시 무효 → 평상시 비움.
     bizbox_jsessionid: str = ""
+    # 첨부 다운로드 프록시 base — LibreChat(https)에서 gw(http) 직접 다운로드는 Mixed Content 로
+    # 브라우저가 차단한다(gw 는 https 미지원). open-llm nginx 에 `/bizbox-dl/` → `gw.cudo.co.kr`
+    # 프록시를 두고 이 값을 그 https 경로로 설정하면 download_url 이 https 로 생성돼 클릭 다운로드가
+    # 동작한다. 예: https://open-llm.cudo.co.kr:9977/bizbox-dl. 비우면 http 직접(폴백, 클릭 차단됨).
+    attachment_proxy_base: str = ""
 
     # ── MCP server ────────────────────────────────────────────
     mcp_port: int = 8080
@@ -93,3 +98,19 @@ def absolute_bizbox_url(path: str | None) -> str | None:
         return path
     base = get_settings().bizbox_base.rstrip("/")
     return base + path if path.startswith("/") else f"{base}/{path}"
+
+
+def attachment_download_url(path: str | None) -> str | None:
+    """첨부 다운로드 클릭 URL — 프록시 base 설정 시 https 프록시 경로, 아니면 절대 bizbox URL.
+
+    LibreChat(https) 에서 gw(http) 다운로드는 Mixed Content 로 브라우저가 차단한다(gw https 미지원).
+    ``attachment_proxy_base`` (예 https://open-llm.cudo.co.kr:9977/bizbox-dl) 가 설정되면 그 https
+    경로로 생성해 클릭 다운로드가 동작하게 한다. 미설정이면 ``absolute_bizbox_url`` (http 직접) 폴백.
+    download_url 은 viewPost(페이지이동, http 도 클릭됨)와 달리 attachment 라 반드시 https 여야 한다.
+    """
+    if not path or path.startswith(("http://", "https://")):
+        return path
+    proxy = get_settings().attachment_proxy_base.rstrip("/")
+    if proxy:
+        return proxy + path if path.startswith("/") else f"{proxy}/{path}"
+    return absolute_bizbox_url(path)

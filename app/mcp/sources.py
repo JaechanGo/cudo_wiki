@@ -13,7 +13,7 @@ from datetime import date
 
 from psycopg.rows import dict_row
 
-from app.common.config import absolute_bizbox_url
+from app.common.config import absolute_bizbox_url, attachment_download_url
 from app.mcp.schemas import AttachmentRef, SourceMeta
 from app.search.types import SearchHit
 
@@ -35,7 +35,7 @@ def assemble_source_meta(
             attachment_id=row["attachment_id"],
             file_name=row["file_name"],
             kind=row["kind"],
-            download_url=absolute_bizbox_url(row.get("download_url")),
+            download_url=attachment_download_url(row.get("download_url")),
         )
         for row in sorted(attachment_rows, key=lambda r: r["attachment_id"])
     ]
