@@ -35,8 +35,10 @@ def test_assembles_basic_fields():
 
 def test_attachments_sorted_by_id():
     rows = [
-        {"attachment_id": 30, "file_name": "c.pdf", "kind": "pdf", "download_url": "u30"},
-        {"attachment_id": 10, "file_name": "a.hwp", "kind": "hwp", "download_url": "u10"},
+        {"attachment_id": 30, "file_name": "c.pdf", "kind": "pdf",
+         "download_url": "/edms/board/downloadFile.do?fileNm=c.pdf"},
+        {"attachment_id": 10, "file_name": "a.hwp", "kind": "hwp",
+         "download_url": "/edms/board/downloadFile.do?fileNm=a.hwp"},
         {"attachment_id": 20, "file_name": "b.xlsx", "kind": "excel", "download_url": None},
     ]
     meta = assemble_source_meta(
@@ -44,9 +46,12 @@ def test_attachments_sorted_by_id():
         reg_code=None, effective_date=None, source_url=None, attachment_rows=rows,
     )
     assert [a.attachment_id for a in meta.attachments] == [10, 20, 30]
+    # download_url 은 절대 URL 로 변환되어 클릭 가능(bizbox_base 기본 http://gw.cudo.co.kr).
     assert meta.attachments[0] == AttachmentRef(
-        attachment_id=10, file_name="a.hwp", kind="hwp", download_url="u10"
+        attachment_id=10, file_name="a.hwp", kind="hwp",
+        download_url="http://gw.cudo.co.kr/edms/board/downloadFile.do?fileNm=a.hwp",
     )
+    assert meta.attachments[1].download_url is None  # 빈 값은 그대로
 
 
 def test_deterministic_same_input_same_output():

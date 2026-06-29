@@ -9,6 +9,7 @@ from __future__ import annotations
 from mcp.server.fastmcp import Context, FastMCP
 from psycopg.rows import dict_row
 
+from app.common.config import absolute_bizbox_url
 from app.common.db import get_pool
 from app.mcp import audit
 from app.mcp.attachments import (
@@ -89,7 +90,7 @@ async def impl_get_attachment(
 
     file_name = att["file_name"]
     mime_type = att["mime_type"]
-    download_url = att["download_url"]
+    download_url = absolute_bizbox_url(att["download_url"])
 
     # ── image 분기(B-1 게이트) ──────────────────────────────────────────
     if is_image_attachment(att["kind"], att["is_table"]):

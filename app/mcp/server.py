@@ -40,6 +40,10 @@ _INSTRUCTIONS = (
     "'과거/개정 전'으로 명시해 분리하고 현행 답변에 섞지 마라. 개정 이력·시행일 비교가 "
     "필요하면 get_regulation_diff·시행일(effective_date) 메타를 사용하라. "
     "인용은 메타데이터 결정론(LLM 조번호 생성 금지), 근거 없으면 기권. "
+    "★ 첨부 링크: 검색 결과 출처(source)에 첨부(attachments)가 있으면, 각 첨부를 "
+    "**`[파일명](download_url)` 마크다운 링크**로 답변에 제시하라(download_url 은 이미 "
+    "절대 URL). 사용자가 클릭하면 BizBox 에서 원문(양식·전결표 등)을 직접 받는다. "
+    "URL 을 바꾸거나 새로 만들지 말고 메타의 download_url 을 그대로 쓸 것. "
     "신원·권한은 인증세션 헤더 기반(ACL/PII 마스킹). "
     "aggregate_compare 는 v1 에서 보드별 현행 규정 카운트 비교만 지원(차집합·추세 미지원)."
 )

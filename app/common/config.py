@@ -76,3 +76,15 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """프로세스 단일 Settings 인스턴스(싱글톤)."""
     return Settings()
+
+
+def absolute_bizbox_url(path: str | None) -> str | None:
+    """상대 BizBox 경로(``/edms/...``)를 절대 URL(``bizbox_base``+path)로 — 첨부 다운로드 클릭링크용.
+
+    답변(MCP source/get_attachment)에 노출하는 download_url 은 사용자가 클릭해 BizBox 에서 직접
+    받도록 절대 URL 이어야 한다(사내망 + BizBox 로그인 세션 전제). 이미 절대 URL 이거나 빈 값이면 그대로.
+    """
+    if not path or path.startswith(("http://", "https://")):
+        return path
+    base = get_settings().bizbox_base.rstrip("/")
+    return base + path if path.startswith("/") else f"{base}/{path}"
