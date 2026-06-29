@@ -94,6 +94,10 @@ mcp = FastMCP(
     name="cudo-wiki",
     instructions=_INSTRUCTIONS,
     streamable_http_path="/",
+    # stateless_http: 요청마다 무상태 처리 → 인메모리 세션 분실("Session not found" 404)·
+    # LibreChat 서킷브레이커 차단을 원천 제거. 도구가 전부 동기 요청/응답이라 SSE 알림 스트림
+    # 불요 → 부작용 없음(Task009 §7.2 신뢰 내부망 전제와 동일).
+    stateless_http=True,
     transport_security=_TRANSPORT_SECURITY,
 )
 
